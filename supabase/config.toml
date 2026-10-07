@@ -1,0 +1,17 @@
+# Minimal Supabase CLI config for local development (`supabase start`).
+project_id = "crumb-club-pos"
+
+[db]
+major_version = 16
+
+[db.seed]
+enabled = true
+sql_paths = ["./seed.sql"]
+
+[auth]
+site_url = "http://localhost:3000"
+# Owners sign up once; afterwards you can disable signups in the dashboard.
+enable_signup = true
+
+[auth.email]
+enable_confirmations = false

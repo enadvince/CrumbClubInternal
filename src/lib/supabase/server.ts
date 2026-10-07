@@ -1,0 +1,54 @@
+import "server-only";
+import { createServerClient } from "@supabase/ssr";
+import { createClient } from "@supabase/supabase-js";
+import { cookies } from "next/headers";
+import { supabaseEnv } from "./env";
+
+export async function getServerSupabase() {
+  const { url, anonKey } = supabaseEnv();
+  const cookieStore = await cookies();
+  return createServerClient(url, anonKey, {
+    cookies: {
+      getAll: () => cookieStore.getAll(),
+      setAll: (toSet) => {
+        try {
+          for (const { name, value, options } of toSet) cookieStore.set(name, value, options);
+        } catch {
+          // Called from a Server Component; the proxy refreshes the session instead.
+        }
+      },
+    },
+  });
+}
+
+/** Service-role client. Server only; bypasses RLS. Used solely for device pairing. */
+export function getServiceSupabase() {
+  const { url } = supabaseEnv();
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!key) throw new Error("SUPABASE_SERVICE_ROLE_KEY is not set");
+  return createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } });
+}
+
+export type Membership = { business_id: string; role: "owner" | "device"; business_name: string };
+
+/** Current user and their (first) membership, or nulls. */
+export async function getSessionContext() {
+  const supabase = await getServerSupabase();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { supabase, user: null, membership: null as Membership | null };
+  const { data } = await supabase
+    .from("memberships")
+    .select("business_id, role, businesses(name)")
+    .eq("user_id", user.id)
+    .order("created_at")
+    .limit(1)
+    .maybeSingle();
+  const membership: Membership | null = data
+    ? {
+        business_id: data.business_id,
+        role: data.role,
+        business_name: (data.businesses as unknown as { name: string } | null)?.name ?? "",
+      }
+    : null;
+  return { supabase, user, membership };
+}

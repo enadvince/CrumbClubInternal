@@ -1,0 +1,70 @@
+@import "tailwindcss";
+
+/* Warm, high-contrast palette that stays readable in bright outdoor light. */
+@theme {
+  --color-cream: #fff8ef;
+  --color-paper: #ffffff;
+  --color-crust: #f3e3cc;
+  --color-crust-dark: #e2c9a6;
+  --color-ink: #24160c;
+  --color-ink-soft: #5a4636;
+  --color-caramel: #9a4f12;
+  --color-caramel-dark: #7a3c0b;
+  --color-ube: #5b3a8c;
+  --color-ube-light: #efe7f8;
+  --color-ok: #1d6b3a;
+  --color-ok-light: #e3f3e8;
+  --color-warn: #8a5a00;
+  --color-warn-light: #fff1cc;
+  --color-danger: #a3221b;
+  --color-danger-light: #fde6e4;
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+}
+
+html, body {
+  background: var(--color-cream);
+  color: var(--color-ink);
+}
+
+body {
+  -webkit-tap-highlight-color: transparent;
+  font-feature-settings: "tnum" 1; /* tabular figures for prices */
+}
+
+/* Visible keyboard focus everywhere */
+:focus-visible {
+  outline: 3px solid var(--color-ube);
+  outline-offset: 2px;
+}
+
+@utility btn {
+    @apply inline-flex min-h-12 items-center justify-center gap-2 rounded-xl px-4 py-2 font-semibold
+      transition-[transform,background-color] duration-75 select-none
+      active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-50;
+  }
+
+@utility btn-primary { @apply btn bg-caramel text-white hover:bg-caramel-dark; }
+
+@utility btn-ube { @apply btn bg-ube text-white hover:brightness-110; }
+
+@utility btn-secondary { @apply btn border-2 border-crust-dark bg-paper text-ink hover:bg-crust; }
+
+@utility btn-danger { @apply btn bg-danger text-white hover:brightness-110; }
+
+@utility btn-ghost { @apply btn text-ink hover:bg-crust; }
+
+@utility card { @apply rounded-2xl border border-crust-dark bg-paper; }
+
+@utility input {
+    @apply min-h-12 w-full rounded-xl border-2 border-crust-dark bg-paper px-3 py-2 text-ink
+      placeholder:text-ink-soft/70 focus:border-ube focus:outline-none;
+  }
+
+@utility label { @apply mb-1 block text-sm font-semibold text-ink-soft; }
+
+@utility badge { @apply inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-bold; }
+
+@media print {
+  .no-print { display: none !important; }
+  body { background: white; }
+}
