@@ -24,8 +24,8 @@ Copy `.env.example` to `.env.local` and fill in:
 | Variable | Where to find it | Used by |
 |---|---|---|
 | `NEXT_PUBLIC_SUPABASE_URL` | Supabase → Project Settings → API → Project URL | browser + server |
-| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Supabase → Project Settings → API → anon / publishable key | browser + server |
-| `SUPABASE_SERVICE_ROLE_KEY` | Supabase → Project Settings → API → service_role key. **Server only — never expose it.** | `/api/device/pair` only (creates the tablet's login) |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` (or `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`) | Supabase → Project Settings → API → anon / publishable key | browser + server |
+| `SUPABASE_SERVICE_ROLE_KEY` (or `SUPABASE_SECRET_KEY`) | Supabase → Project Settings → API → service_role / secret key. **Server only — never expose it.** | `/api/device/pair` only (creates the tablet's login) |
 | `NEXT_PUBLIC_POS_DEMO` | Leave unset in real use. `1` runs the POS against a fake in-browser server (for demos and e2e tests). | POS |
 
 ### Database
@@ -54,7 +54,7 @@ The seed creates a dev owner `owner@crumbclub.test` / `crumbclub123` (owner PIN 
 4. On the tablet: sign in as the owner, go to **Set up POS tablet**, tap **Use this tablet as the POS**. The tablet now has its own restricted login. Add it to the home screen (Share → Add to Home Screen / Install app).
 
 ### Deploy (Vercel)
-Import the repo in Vercel, add the three environment variables, and deploy. No other configuration is needed. `public/sw.js` is served with `no-cache` so updates reach the tablet.
+Import the repo in Vercel, add the three environment variables, and deploy. Variables are read **at build time**: after adding or changing them, redeploy. No other configuration is needed. `public/sw.js` is served with `no-cache` so updates reach the tablet.
 
 ### Scripts
 
