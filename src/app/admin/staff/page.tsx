@@ -103,27 +103,49 @@ function AddStaffModal({ open, onClose, businessId, onSaved }: { open: boolean; 
 }
 
 function PinModal({ staff, onClose, onSaved }: { staff: Staff | null; onClose: () => void; onSaved: () => void }) {
+  const [current, setCurrent] = useState("");
   const [pin, setPin] = useState("");
   const [error, setError] = useState<string | null>(null);
-  useEffect(() => { setPin(""); setError(null); }, [staff]);
+  const [saving, setSaving] = useState(false);
+  useEffect(() => { setCurrent(""); setPin(""); setError(null); }, [staff]);
+
+  // Changing an existing PIN needs the current one; the server checks it before saving.
+  const changing = !!staff?.pin_hash;
+  const ready = pin.length === 4 && (!changing || current.length === 4);
 
   async function submit(e: FormEvent) {
     e.preventDefault();
-    const { error } = await getSupabase().rpc("set_staff_pin", { p_staff_id: staff!.id, p_pin: pin });
-    if (error) return setError(errorMessage(error));
+    if (!staff || !ready) return;
+    setSaving(true);
+    const { error } = changing
+      ? await getSupabase().rpc("change_staff_pin", { p_staff_id: staff.id, p_current_pin: current, p_new_pin: pin })
+      : await getSupabase().rpc("set_staff_pin", { p_staff_id: staff.id, p_pin: pin });
+    setSaving(false);
+    if (error) {
+      setCurrent("");
+      return setError(errorMessage(error));
+    }
     onSaved();
   }
 
+  const digits = (v: string) => v.replace(/\D/g, "").slice(0, 4);
+  const pinInput = "input text-center text-2xl tracking-[0.6em]";
+
   return (
-    <Modal open={!!staff} onClose={onClose} title={`PIN for ${staff?.name ?? ""}`}>
+    <Modal open={!!staff} onClose={onClose} title={`${changing ? "Change PIN" : "PIN"} for ${staff?.name ?? ""}`}>
       <form onSubmit={submit} className="space-y-4">
         {error && <Notice tone="danger">{error}</Notice>}
+        {changing && (
+          <Field label="Current PIN" htmlFor="current-pin">
+            <input id="current-pin" autoFocus required type="password" inputMode="numeric" autoComplete="off" pattern="\d{4}" maxLength={4}
+              className={pinInput} value={current} onChange={(e) => setCurrent(digits(e.target.value))} />
+          </Field>
+        )}
         <Field label="New 4-digit PIN" htmlFor="new-pin">
-          <input id="new-pin" autoFocus required inputMode="numeric" pattern="\d{4}" maxLength={4}
-            className="input text-center text-2xl tracking-[0.6em]" value={pin}
-            onChange={(e) => setPin(e.target.value.replace(/\D/g, ""))} />
+          <input id="new-pin" autoFocus={!changing} required type="password" inputMode="numeric" autoComplete="off" pattern="\d{4}" maxLength={4}
+            className={pinInput} value={pin} onChange={(e) => setPin(digits(e.target.value))} />
         </Field>
-        <button className="btn-primary w-full" disabled={pin.length !== 4}>Save PIN</button>
+        <button className="btn-primary w-full" disabled={!ready || saving}>{saving ? "Saving…" : changing ? "Change PIN" : "Save PIN"}</button>
       </form>
     </Modal>
   );
