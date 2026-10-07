@@ -68,3 +68,17 @@ body {
   .no-print { display: none !important; }
   body { background: white; }
 }
+
+@keyframes tapflash {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+
+@keyframes popin {
+  from { transform: scale(0.6); opacity: 0; }
+  to { transform: scale(1); opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 1ms !important; transition-duration: 1ms !important; }
+}
