@@ -18,6 +18,10 @@
   --color-warn-light: #fff1cc;
   --color-danger: #a3221b;
   --color-danger-light: #fde6e4;
+  /* Chart series (validated: lightness, chroma, CVD separation, 3:1 on white) */
+  --color-series-1: #b0601a;
+  --color-series-2: #7652b5;
+  --color-grid: #ece3d6;
   --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
 }
 
