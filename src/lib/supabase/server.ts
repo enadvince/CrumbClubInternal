@@ -2,7 +2,7 @@ import "server-only";
 import { createServerClient } from "@supabase/ssr";
 import { createClient } from "@supabase/supabase-js";
 import { cookies } from "next/headers";
-import { supabaseEnv } from "./env";
+import { serviceRoleKey, supabaseEnv } from "./env";
 
 export async function getServerSupabase() {
   const { url, anonKey } = supabaseEnv();
@@ -24,8 +24,8 @@ export async function getServerSupabase() {
 /** Service-role client. Server only; bypasses RLS. Used solely for device pairing. */
 export function getServiceSupabase() {
   const { url } = supabaseEnv();
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!key) throw new Error("SUPABASE_SERVICE_ROLE_KEY is not set");
+  const key = serviceRoleKey();
+  if (!key) throw new Error("SUPABASE_SERVICE_ROLE_KEY (or SUPABASE_SECRET_KEY) is not set");
   return createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } });
 }
 

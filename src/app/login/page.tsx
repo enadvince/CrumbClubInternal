@@ -50,7 +50,9 @@ function LoginForm() {
     <form onSubmit={submit} className="card w-full max-w-sm space-y-4 p-6">
       <h1 className="text-xl font-bold">{mode === "signin" ? "Owner sign in" : "Create owner account"}</h1>
       {!isSupabaseConfigured() && (
-        <Notice tone="warn">Supabase isn&apos;t configured yet. See the README to set environment variables.</Notice>
+        <Notice tone="warn">
+          Supabase isn&apos;t configured in this build. Add the Supabase environment variables in Vercel, then redeploy (they are read when the site is built).
+        </Notice>
       )}
       {error && <Notice tone="danger">{error}</Notice>}
       {info && <Notice tone="ok">{info}</Notice>}

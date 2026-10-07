@@ -1,5 +1,6 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
+import { isSupabaseConfigured, supabaseEnv } from "@/lib/supabase/env";
 
 /**
  * Keeps the Supabase auth cookie fresh and guards owner pages. The POS page is
@@ -7,9 +8,8 @@ import { NextResponse, type NextRequest } from "next/server";
  * with no network, so it checks the (cookie) session on the client instead.
  */
 export async function proxy(request: NextRequest) {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-  if (!url || !anonKey) return NextResponse.next();
+  if (!isSupabaseConfigured()) return NextResponse.next();
+  const { url, anonKey } = supabaseEnv();
 
   let response = NextResponse.next({ request });
   const supabase = createServerClient(url, anonKey, {
