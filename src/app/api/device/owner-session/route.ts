@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import bcrypt from "bcryptjs";
+import { randomUUID } from "node:crypto";
 import { getServiceSupabase, getSessionContext } from "@/lib/supabase/server";
 import { supabaseEnv } from "@/lib/supabase/env";
 import { lockRemaining, nextLock, type OwnerPinLock } from "@/lib/ownerPinLock";
@@ -32,7 +33,7 @@ export async function POST(request: Request) {
 
   const { data: staff } = await admin
     .from("staff")
-    .select("id, user_id, pin_hash")
+    .select("id, name, role, user_id, pin_hash")
     .eq("id", body.staffId)
     .eq("business_id", membership.business_id)
     .eq("role", "owner")
@@ -68,6 +69,15 @@ export async function POST(request: Request) {
   if (ownerError || !owner.user?.email) {
     return NextResponse.json({ error: "Could not find the owner's login." }, { status: 500 });
   }
+
+  // Record the PIN use in the owner's PIN log.
+  const { data: device } = await admin
+    .from("memberships").select("label").eq("user_id", user.id).eq("business_id", membership.business_id).maybeSingle();
+  await admin.from("pin_uses").insert({
+    id: randomUUID(), business_id: membership.business_id, staff_id: staff.id, staff_name: staff.name,
+    staff_role: staff.role, action: "owner_view", used_at: new Date().toISOString(), device_user_id: user.id,
+    device_label: device?.label ?? null,
+  });
 
   // Mint a session for the owner: a magic link token that is verified right away (no email is sent).
   const { data: link, error: linkError } = await admin.auth.admin.generateLink({ type: "magiclink", email: owner.user.email });

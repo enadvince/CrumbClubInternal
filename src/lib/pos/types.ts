@@ -10,7 +10,12 @@ export type Snapshot = {
   products?: MenuProduct[];
   bundles?: MenuBundle[];
   voided_transaction_ids?: string[];
+  /** Preset discounts set up by the owner (older servers don't send it) */
+  discount_options?: DiscountOption[];
 };
+
+/** Owner-defined preset discount. value: basis points for percent (1000 = 10%), centavos for fixed. */
+export type DiscountOption = { id: string; name: string; type: "percent" | "fixed"; value: number };
 
 export type SnapshotStaff = { id: string; name: string; role: "owner" | "staff"; pin_hash: string };
 

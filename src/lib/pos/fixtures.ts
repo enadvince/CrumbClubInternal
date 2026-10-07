@@ -2,8 +2,8 @@ import type { MenuBundle, MenuProduct, Snapshot } from "./types";
 
 /** Test/demo menu mirroring the seeded sample data. */
 export function sampleSnapshot(overrides: { stock?: Record<string, number> } = {}): Snapshot {
-  const product = (id: string, name: string, price: number, cost: number, stock: number, sort: number): MenuProduct => ({
-    event_product_id: `ep-${id}`, product_id: `p-${id}`, name, category: "Croissants", photo_url: null,
+  const product = (id: string, name: string, price: number, cost: number, stock: number, sort: number, category = "Croissants"): MenuProduct => ({
+    event_product_id: `ep-${id}`, product_id: `p-${id}`, name, category, photo_url: null,
     price_centavos: price, cost_centavos: cost, stock: overrides.stock?.[id] ?? stock, is_available: true,
     sort_order: sort, sold_out_at: null,
   });
@@ -12,9 +12,9 @@ export function sampleSnapshot(overrides: { stock?: Record<string, number> } = {
     product("ube", "Ube Croissant", 12000, 5000, 24, 2),
     product("choc", "Pain au Chocolat", 11000, 4500, 24, 3),
     product("almond", "Almond Croissant", 13000, 5500, 12, 4),
-    product("ensay", "Ensaymada", 8500, 3000, 24, 5),
-    product("tart", "Calamansi Tart", 9000, 3500, 24, 6),
-    product("cookie", "Brown Butter Cookie", 6500, 2200, 24, 7),
+    product("ensay", "Ensaymada", 8500, 3000, 24, 5, "Breads"),
+    product("tart", "Calamansi Tart", 9000, 3500, 24, 6, "Sweets"),
+    product("cookie", "Brown Butter Cookie", 6500, 2200, 24, 7, "Sweets"),
   ];
   const bundle = (id: string, name: string, type: "fixed" | "mix_match", price: number, items: [string, number][], required: number | null, sort: number): MenuBundle => ({
     event_bundle_id: `eb-${id}`, bundle_id: `b-${id}`, name, type, photo_url: null, price_centavos: price,
@@ -26,6 +26,7 @@ export function sampleSnapshot(overrides: { stock?: Record<string, number> } = {
     business: { id: "biz", name: "Crumb Club", timezone: "Asia/Manila" },
     staff: [],
     recent_qr_refs: [],
+    discount_options: [{ id: "d-senior", name: "Senior citizen", type: "percent", value: 2000 }],
     event: { id: "event-1", name: "Sample Market", venue: "Salcedo", status: "live", starts_on: "2026-10-10", ends_on: "2026-10-10", low_stock_threshold: 5 },
     products,
     bundles: [

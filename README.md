@@ -76,6 +76,7 @@ Import the repo in Vercel, add the three environment variables, and deploy. Vari
 - **Device** (the POS tablet) — its own Supabase login, created by an owner through `/pos/pair`. RLS lets it **read** the menu and record sales and stock changes **only through RPCs**. It cannot read staff rows, owner pages, the dashboard, or other businesses.
 - **Staff** — 4-digit PIN on the tablet. PINs are bcrypt hashes, set only through `set_staff_pin` and unique per business. They are checked on the tablet against cached hashes so unlocking works offline. A 4-digit PIN identifies who rang up a sale; the tablet's device login is the real security boundary.
 - **Owner view on the tablet** — tap **📊 Owner view** on the POS and enter an owner PIN to open the owner pages on the tablet. `/api/device/owner-session` (callable only by the device login) checks the PIN on the server, locks the tablet out for 15 minutes after 5 wrong PINs, and returns a session for that owner's own login. The device login is parked in IndexedDB meanwhile. **← Back to POS** (or 5 minutes without a tap) signs the owner out on the tablet and restores the device login. Needs the internet; sync pauses while owner view is open and resumes on return.
+- **PIN log** — every successful PIN use (staff sign-in, owner menu, owner view, void approval) is recorded with name, role, time and device. Tablet uses are queued offline and synced like sales. Owners see it under **PIN log**; it has no update or delete privileges, so it can't be edited.
 - Every table has `business_id` and RLS, so more businesses can be added later.
 
 ### Offline and sync (single tablet)
@@ -133,15 +134,15 @@ Import the repo in Vercel, add the three environment variables, and deploy. Vari
 3. Changing shifts? Tap **👤 your name · Switch** and the next person enters their PIN.
 
 **Making a sale**
-1. Tap pastries on the **Pastries** tab or bundles on the **Bundles** tab. Tap again to add more. Use **− / +** in the cart to change amounts.
+1. Tap pastries on the **Individual Items** tab or bundles on the **Bundles** tab. Use the chips under the tabs to filter items by subcategory (set on each product in the owner pages) or bundles by type (fixed / mix & match). Tap again to add more. Use **− / +** in the cart to change amounts.
 2. **Pick-your-own boxes** (e.g. "Any 6"): tap the bundle, tap pastries until the counter is full, then **Add to cart**.
 3. A purple **💡 Switch to … and save ₱X** button means the customer gets a better price as a bundle. Tap it.
 4. Tap **Checkout**:
    - **Cash:** tap **Exact**, a quick amount (₱100 / ₱200 / ₱500 / ₱1,000), or type pesos on the keypad. Give the **change due** shown on screen, then tap **Complete sale**.
    - **QR Ph (GCash):** the customer scans the Crumb Club QR. **Wait until the GCash merchant notification shows the payment.** Type its **reference number**, tick the confirmation box, then tap **Complete sale**. If the screen warns that the reference was already used, check again before continuing.
 5. The screen flashes **✓ Sale saved** and is ready for the next customer.
-6. Made a mistake? Tap **Undo** at the bottom left within **60 seconds**, then return the customer's payment.
-7. Discounts: tap **+ Add discount** in the cart, choose % or ₱, and pick a **reason** (required).
+6. Made a mistake? Tap **Undo** at the bottom left within **60 seconds**. An owner enters their PIN to approve the void; then return the customer's payment. Voids from the owner pages also need an owner PIN.
+7. Discounts: tap **+ Add discount** in the cart and pick one of the owner's **discount options** (set under **Discounts** in the owner pages), or enter a custom % or ₱ amount with a **reason** (required).
 
 **What the screen tells you**
 - Greyed card with **✕ Sold out** or **Unavailable**: can't be sold.

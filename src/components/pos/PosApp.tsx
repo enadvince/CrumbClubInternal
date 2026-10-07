@@ -9,7 +9,7 @@ import { SyncEngine, type SyncState } from "@/lib/offline/sync";
 import { supabaseTransport } from "@/lib/offline/transport";
 import { demoTransport, isPosDemo } from "@/lib/offline/demoTransport";
 import { localAvailability, localStock, summarizeOutbox } from "@/lib/offline/stock";
-import { isDuplicateQrRef, recordSaleLocally, undoSale, UNDO_WINDOW_MS } from "@/lib/offline/actions";
+import { isDuplicateQrRef, logPinUseLocally, recordSaleLocally, undoSale, UNDO_WINDOW_MS } from "@/lib/offline/actions";
 import {
   addBundle, addProduct, buildMenu, buildSale, bundleState, canIncrement, changeQuantity, priceCart,
   productState, pruneCart, remainingStock,
@@ -54,6 +54,10 @@ export function PosApp() {
   const [cart, setCart] = useState<CartLine[]>([]);
   const [discount, setDiscount] = useState<Discount | null>(null);
   const [tab, setTab] = useState<"bundles" | "pastries">("pastries");
+  // Filters within a tab: product subcategory, or bundle type. null = all.
+  const [subcategory, setSubcategory] = useState<string | null>(null);
+  const [bundleType, setBundleType] = useState<MenuBundle["type"] | null>(null);
+  const [voidGate, setVoidGate] = useState(false);
   const [picking, setPicking] = useState<MenuBundle | null>(null);
   const [checkingOut, setCheckingOut] = useState(false);
   const [discounting, setDiscounting] = useState(false);
@@ -152,6 +156,8 @@ export function PosApp() {
   const suggestion = useMemo(() => (menu ? suggestBundle(cart, menu) : null), [menu, cart]);
   const products = useMemo(() => (menu ? [...menu.products.values()].sort((a, b) => a.sort_order - b.sort_order || a.name.localeCompare(b.name)) : []), [menu]);
   const bundles = useMemo(() => (menu ? [...menu.bundles.values()].sort((a, b) => a.sort_order - b.sort_order || a.name.localeCompare(b.name)) : []), [menu]);
+  const subcategories = useMemo(() => [...new Set(products.map((p) => p.category))].sort(), [products]);
+  const bundleTypes = useMemo(() => (["fixed", "mix_match"] as const).filter((t) => bundles.some((b) => b.type === t)), [bundles]);
   const inCartProduct = useMemo(() => {
     const m = new Map<string, number>();
     for (const l of cart) if (l.kind === "product") m.set(l.eventProductId, (m.get(l.eventProductId) ?? 0) + l.quantity);
@@ -164,9 +170,12 @@ export function PosApp() {
   }, [cart]);
 
   // ---- Actions
+  const eventId = snapshot?.event?.id ?? "";
   const unlock = useCallback(async (s: SnapshotStaff) => {
     await db.setKv<ActiveStaff>(KV.activeStaff, { id: s.id, name: s.name, role: s.role, unlockedAt: Date.now() });
-  }, [db]);
+    await logPinUseLocally(db, s.id, "sign_in", eventId);
+    engineRef.current?.requestSync();
+  }, [db, eventId]);
 
   const lock = useCallback(async () => {
     await db.setKv(KV.activeStaff, null);
@@ -175,6 +184,8 @@ export function PosApp() {
 
   function chooseTab(t: "bundles" | "pastries") {
     setTab(t);
+    setSubcategory(null);
+    setBundleType(null);
     try { localStorage.setItem(TAB_KEY, t); } catch { /* ignore */ }
   }
 
@@ -200,11 +211,13 @@ export function PosApp() {
     engineRef.current?.requestSync();
   }
 
-  async function undoLast() {
+  /** Undoing (voiding) a sale needs an owner PIN; the owner is recorded as the one who voided it. */
+  async function undoLast(owner: SnapshotStaff) {
+    setVoidGate(false);
     if (!lastSale || !currentStaff) return;
-    if (!confirm(`Undo the last sale of ${formatPeso(lastSale.total)}? Stock will be returned.`)) return;
     try {
-      await undoSale(db, lastSale.id, currentStaff.id);
+      await undoSale(db, lastSale.id, owner.id);
+      await logPinUseLocally(db, owner.id, "void_approval", eventId);
       setNotice(`Sale of ${formatPeso(lastSale.total)} undone. Return the customer's payment.`);
       setLastSale(null);
       engineRef.current?.requestSync();
@@ -315,7 +328,11 @@ export function PosApp() {
     <>
       <SyncInfo open={showSync} onClose={() => setShowSync(false)} state={syncState} summary={summary} now={now} onSync={() => engineRef.current?.syncOnce()} onOwner={() => { setShowSync(false); openOwnerMenu(); }} />
       <Modal open={ownerGate} onClose={() => setOwnerGate(false)} title="Owner PIN">
-        <PinPad staff={staff} requireOwner title="Enter an owner PIN" onUnlock={(s, pin) => { setOwnerGate(false); setOwnerMenu({ staffId: s.id, pin }); }} onCancel={() => setOwnerGate(false)} />
+        <PinPad staff={staff} requireOwner title="Enter an owner PIN" onUnlock={(s, pin) => {
+          setOwnerGate(false);
+          setOwnerMenu({ staffId: s.id, pin });
+          void logPinUseLocally(db, s.id, "owner_menu", eventId).then(() => engineRef.current?.requestSync());
+        }} onCancel={() => setOwnerGate(false)} />
       </Modal>
       <Modal open={ownerViewGate} onClose={() => !ownerViewState.busy && setOwnerViewGate(false)} title="Owner view">
         {!syncState.online ? (
@@ -393,16 +410,22 @@ export function PosApp() {
       <div className="grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-[1fr_minmax(340px,400px)]">
         <section className="flex min-h-0 flex-col" aria-label="Menu">
           <div className="flex gap-2 p-3" role="tablist" aria-label="Menu sections">
-            {([["bundles", `📦 Bundles (${bundles.length})`], ["pastries", `🥐 Pastries (${products.length})`]] as const).map(([t, label]) => (
+            {([["bundles", `📦 Bundles (${bundles.length})`], ["pastries", `🥐 Individual Items (${products.length})`]] as const).map(([t, label]) => (
               <button key={t} role="tab" aria-selected={tab === t} onClick={() => chooseTab(t)}
                 className={`btn h-14 flex-1 border-2 text-lg ${tab === t ? (t === "bundles" ? "border-ube bg-ube text-white" : "border-caramel bg-caramel text-white") : "border-crust-dark bg-paper text-ink"}`}>
                 {label}
               </button>
             ))}
           </div>
+          {tab === "pastries" && subcategories.length > 1 && (
+            <FilterChips label="Subcategory" options={subcategories.map((c) => [c, c] as const)} value={subcategory} onChange={setSubcategory} />
+          )}
+          {tab === "bundles" && bundleTypes.length > 1 && (
+            <FilterChips label="Bundle type" options={bundleTypes.map((t) => [t, BUNDLE_TYPE_LABEL[t]] as const)} value={bundleType} onChange={setBundleType} />
+          )}
           <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-3" role="tabpanel">
             <div className="grid grid-cols-[repeat(auto-fill,minmax(150px,1fr))] gap-3">
-              {tab === "pastries" && products.map((p) => {
+              {tab === "pastries" && products.filter((p) => !subcategory || p.category === subcategory).map((p) => {
                 const state = productState(menu, p.event_product_id, remaining);
                 return (
                   <ItemCard
@@ -417,7 +440,7 @@ export function PosApp() {
                   />
                 );
               })}
-              {tab === "bundles" && bundles.map((b) => {
+              {tab === "bundles" && bundles.filter((b) => !bundleType || b.type === bundleType).map((b) => {
                 const state = bundleState(menu, b.event_bundle_id, remaining);
                 const detail = b.type === "fixed"
                   ? b.items.map((i) => `${i.quantity}× ${menu.products.get(i.event_product_id ?? "")?.name ?? "?"}`).join(", ")
@@ -462,7 +485,7 @@ export function PosApp() {
       {lastSale && undoLeft > 0 && (
         <div className="fixed bottom-4 left-4 z-10 flex items-center gap-3 rounded-2xl bg-ink px-4 py-3 text-white shadow-xl" role="status">
           <span>✓ Last sale {formatPeso(lastSale.total)}</span>
-          <button className="btn min-h-11 bg-white text-ink" onClick={undoLast}>Undo ({undoLeft}s)</button>
+          <button className="btn min-h-11 bg-white text-ink" onClick={() => setVoidGate(true)}>Undo ({undoLeft}s)</button>
         </div>
       )}
 
@@ -476,6 +499,16 @@ export function PosApp() {
         </div>
       )}
 
+      <Modal open={voidGate && !!lastSale && undoLeft > 0} onClose={() => setVoidGate(false)} title="Void sale">
+        <PinPad
+          staff={staff}
+          requireOwner
+          title="Owner PIN to void"
+          subtitle={lastSale ? `Undo the sale of ${formatPeso(lastSale.total)}. Stock will be returned.` : undefined}
+          onUnlock={(s) => undoLast(s)}
+          onCancel={() => setVoidGate(false)}
+        />
+      </Modal>
       <MixPicker
         bundle={picking}
         menu={menu}
@@ -484,10 +517,28 @@ export function PosApp() {
         onAdd={(picks) => { setCart((c) => addBundle(c, picking!.event_bundle_id, newId, picks)); setPicking(null); }}
       />
       <CheckoutModal open={checkingOut} total={priced.total} onClose={() => setCheckingOut(false)} onComplete={completeSale} checkQrDuplicate={checkQrDuplicate} />
-      <DiscountModal open={discounting} subtotal={priced.subtotal} onClose={() => setDiscounting(false)} onApply={(d) => { setDiscount(d); setDiscounting(false); }} />
+      <DiscountModal open={discounting} subtotal={priced.subtotal} options={snapshot.discount_options ?? []} onClose={() => setDiscounting(false)} onApply={(d) => { setDiscount(d); setDiscounting(false); }} />
       <ShiftPanel open={showShift} onClose={() => setShowShift(false)} eventId={menu.eventId} staffId={currentStaff.id} staffName={currentStaff.name} />
       {overlays}
     </main>
+  );
+}
+
+const BUNDLE_TYPE_LABEL: Record<MenuBundle["type"], string> = { fixed: "Fixed", mix_match: "Mix & match" };
+
+function FilterChips<T extends string>({ label, options, value, onChange }: {
+  label: string; options: readonly (readonly [T, string])[]; value: T | null; onChange: (v: T | null) => void;
+}) {
+  const all: readonly (readonly [T | null, string])[] = [[null, "All"], ...options];
+  return (
+    <div className="flex gap-2 overflow-x-auto px-3 pb-2" role="radiogroup" aria-label={label}>
+      {all.map(([v, text]) => (
+        <button key={v ?? "__all"} role="radio" aria-checked={value === v} onClick={() => onChange(v)}
+          className={`btn min-h-11 shrink-0 border-2 px-4 text-sm ${value === v ? "border-ink bg-ink text-white" : "border-crust-dark bg-paper text-ink"}`}>
+          {text}
+        </button>
+      ))}
+    </div>
   );
 }
 

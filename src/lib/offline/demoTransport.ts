@@ -67,6 +67,9 @@ export function demoTransport(): SyncTransport {
       s.availability[a.event_product_id] = a.available;
       save(s);
     },
+    async logPinUse() {
+      await guard();
+    },
     async fetchSnapshot() {
       await guard();
       const s = load();

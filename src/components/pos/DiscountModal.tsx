@@ -4,11 +4,18 @@ import { Modal } from "@/components/Modal";
 import { MoneyInput } from "@/components/MoneyInput";
 import { formatPeso, parsePercent } from "@/lib/money";
 import { discountAmount } from "@/lib/pos/cart";
-import type { Discount } from "@/lib/pos/types";
+import type { Discount, DiscountOption } from "@/lib/pos/types";
 
 const REASONS = ["Friends & family", "Promo", "Damaged item", "Loyal customer", "Staff purchase"];
 
-export function DiscountModal({ open, subtotal, onClose, onApply }: { open: boolean; subtotal: number; onClose: () => void; onApply: (d: Discount) => void }) {
+/** Short label for a preset: "20% off" or "₱50.00 off". */
+export function describeDiscountOption(o: Pick<DiscountOption, "type" | "value">): string {
+  return o.type === "percent" ? `${o.value / 100}% off` : `${formatPeso(o.value)} off`;
+}
+
+export function DiscountModal({ open, subtotal, options = [], onClose, onApply }: {
+  open: boolean; subtotal: number; options?: DiscountOption[]; onClose: () => void; onApply: (d: Discount) => void;
+}) {
   const [type, setType] = useState<"fixed" | "percent">("percent");
   const [fixed, setFixed] = useState<number | null>(null);
   const [percentText, setPercentText] = useState("10");
@@ -28,6 +35,24 @@ export function DiscountModal({ open, subtotal, onClose, onApply }: { open: bool
   return (
     <Modal open={open} onClose={onClose} title="Add discount">
       <div className="space-y-4">
+        {options.length > 0 && (
+          <div>
+            <span className="label">Discount options</span>
+            <div className="grid grid-cols-2 gap-2">
+              {options.map((o) => {
+                const preset: Discount = { type: o.type, value: o.value, reason: o.name } as Discount;
+                return (
+                  <button key={o.id} type="button" onClick={() => onApply(preset)}
+                    className="btn min-h-16 flex-col border-2 border-ube bg-ube-light text-ube">
+                    <span className="font-bold">{o.name}</span>
+                    <span className="text-sm">{describeDiscountOption(o)} · −{formatPeso(discountAmount(subtotal, preset))}</span>
+                  </button>
+                );
+              })}
+            </div>
+            <p className="mt-3 text-sm font-semibold text-ink-soft">Or enter a custom discount:</p>
+          </div>
+        )}
         <div className="grid grid-cols-2 gap-2" role="radiogroup" aria-label="Discount type">
           {([["percent", "% off"], ["fixed", "₱ off"]] as const).map(([t, label]) => (
             <button key={t} role="radio" aria-checked={type === t} onClick={() => setType(t)}

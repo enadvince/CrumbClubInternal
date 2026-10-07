@@ -27,5 +27,8 @@ begin
   if not exists (select 1 from public.memberships where user_id = v_user) then
     v_business := public._create_business_for(v_user, 'Crumb Club', 'Owner', '1234');
     perform public.load_sample_data(v_business);
+    insert into public.discount_options (business_id, name, type, value, sort_order) values
+      (v_business, 'Senior citizen / PWD', 'percent', 2000, 1),
+      (v_business, 'Friends & family', 'percent', 1000, 2);
   end if;
 end $$;
