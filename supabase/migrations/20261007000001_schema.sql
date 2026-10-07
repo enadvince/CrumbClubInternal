@@ -261,7 +261,7 @@ create table public.stock_adjustments (
   id uuid primary key default gen_random_uuid(),
   business_id uuid not null references public.businesses (id) on delete cascade,
   event_id uuid not null references public.events (id) on delete cascade,
-  event_product_id uuid not null references public.event_products (id) on delete cascade,
+  event_product_id uuid not null references public.event_products (id) on delete restrict,
   quantity_change int not null check (quantity_change <> 0),
   reason public.adjustment_reason not null,
   note text,
