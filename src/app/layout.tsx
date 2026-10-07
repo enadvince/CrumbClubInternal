@@ -7,7 +7,7 @@ export const metadata: Metadata = {
   description: "Internal sales tool for Crumb Club pop-ups",
   manifest: "/manifest.webmanifest",
   appleWebApp: { capable: true, title: "Crumb Club POS", statusBarStyle: "default" },
-  icons: { icon: "/icon.svg", apple: "/icon-192.png" },
+  icons: { icon: "/icon.svg", apple: "/apple-touch-icon.png" },
 };
 
 export const viewport: Viewport = {

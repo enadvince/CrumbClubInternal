@@ -85,3 +85,36 @@ test("QR Ph needs a reference and confirmation", async ({ page }) => {
   await complete.click();
   await expect(page.getByText("Sale saved")).toBeVisible();
 });
+
+test("cold start with no network: the POS opens from the service worker cache", async ({ page, context }) => {
+  await unlock(page);
+  // Wait for the service worker to take control and cache the page and its chunks.
+  await page.evaluate(async () => {
+    await navigator.serviceWorker.ready;
+    if (!navigator.serviceWorker.controller) {
+      await new Promise((r) => navigator.serviceWorker.addEventListener("controllerchange", () => r(null), { once: true }));
+    }
+  });
+  await page.reload(); // load once under SW control so chunks go through it
+  await expect(page.getByRole("tab", { name: /Pastries/ })).toBeVisible({ timeout: 20_000 });
+
+  await context.setOffline(true);
+  const fresh = await context.newPage();
+  await fresh.goto("/pos");
+  await expect(fresh.getByRole("tab", { name: /Pastries/ })).toBeVisible({ timeout: 20_000 });
+  await fresh.getByRole("tab", { name: /Pastries/ }).click();
+  await fresh.getByRole("button", { name: /^Butter Croissant/ }).click();
+  await fresh.getByRole("button", { name: /^Checkout/ }).click();
+  await fresh.getByRole("button", { name: "Exact" }).click();
+  await fresh.getByRole("button", { name: /^Complete sale/ }).click();
+  await expect(fresh.getByText("Sale saved")).toBeVisible();
+  await expect(fresh.getByRole("button", { name: /Offline · 1 unsynced/ })).toBeVisible();
+});
+
+test("PWA manifest is served", async ({ request }) => {
+  const res = await request.get("/manifest.webmanifest");
+  expect(res.ok()).toBe(true);
+  const json = await res.json();
+  expect(json.start_url).toBe("/pos");
+  expect(json.icons.length).toBeGreaterThan(1);
+});

@@ -1,0 +1,22 @@
+{
+  "name": "Crumb Club POS",
+  "short_name": "Crumb POS",
+  "description": "Crumb Club internal point of sale for pop-ups",
+  "id": "/pos",
+  "start_url": "/pos",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#fff8ef",
+  "theme_color": "#9a4f12",
+  "icons": [
+    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" },
+    { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml" }
+  ],
+  "shortcuts": [
+    { "name": "Dashboard", "url": "/admin/dashboard" },
+    { "name": "Transactions", "url": "/admin/transactions" }
+  ]
+}
