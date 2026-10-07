@@ -1,9 +1,9 @@
 import "fake-indexeddb/auto";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { KV, PosDatabase, type CachedSnapshot } from "./db";
-import { recordSaleLocally, undoSale, adjustStockLocally, isDuplicateQrRef, UndoError } from "./actions";
+import { recordSaleLocally, undoSale, adjustStockLocally, isDuplicateQrRef, logPinUseLocally, UndoError } from "./actions";
 import { localStock, summarizeOutbox } from "./stock";
-import { SyncEngine, SyncError, type SyncTransport } from "./sync";
+import { SyncEngine, SyncError, type PinUsePayload, type SyncTransport } from "./sync";
 import { addBundle, addProduct, buildMenu, buildSale, priceCart } from "../pos/cart";
 import { sampleSnapshot } from "../pos/fixtures";
 import type { CartLine, SalePayload, Snapshot } from "../pos/types";
@@ -43,6 +43,11 @@ class FakeServer implements SyncTransport {
     if (!this.adjustments.has(p.id as string)) this.adjustments.set(p.id as string, p as never);
   }
   async setAvailability() { this.guard("availability"); }
+  pinUses = new Map<string, PinUsePayload>();
+  async logPinUse(u: PinUsePayload) {
+    this.guard(`pin:${u.action}`);
+    if (!this.pinUses.has(u.id)) this.pinUses.set(u.id, u);
+  }
   async heartbeat() { /* not recorded */ }
   serverStock(ep: string) {
     const start = this.base.products!.find((p) => p.event_product_id === ep)!.stock;
@@ -289,5 +294,27 @@ describe("QR Ph references", () => {
     expect(await isDuplicateQrRef(db, "5012345678901", [])).toBe(true);
     expect(await isDuplicateQrRef(db, "999", ["999"])).toBe(true);
     expect(await isDuplicateQrRef(db, "123", [])).toBe(false);
+  });
+});
+
+describe("PIN log", () => {
+  it("PIN uses recorded offline sync in order with sales and don't count as sales", async () => {
+    online = false;
+    server.online = false;
+    await logPinUseLocally(db, "staff-1", "sign_in", "", clock);
+    await sell([...addProduct([], "ep-ube", lineId)]);
+    await logPinUseLocally(db, "staff-owner", "void_approval", "", clock);
+    const summary = summarizeOutbox(await db.outbox.toArray());
+    expect(summary.unsyncedSales).toBe(1);
+    expect(summary.pending).toBe(3);
+
+    online = true;
+    server.online = true;
+    await engine().syncOnce();
+    expect([...server.pinUses.values()].map((u) => u.action)).toEqual(["sign_in", "void_approval"]);
+    const pushed = server.calls.filter((c) => c.startsWith("pin:") || c.startsWith("sale:"));
+    expect(pushed[0]).toBe("pin:sign_in");
+    expect(pushed[1]).toMatch(/^sale:/);
+    expect(summarizeOutbox(await db.outbox.toArray()).pending).toBe(0);
   });
 });

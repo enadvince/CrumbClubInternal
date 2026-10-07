@@ -12,7 +12,9 @@ const links = [
   { href: "/admin/transactions", label: "Transactions", icon: "🧾" },
   { href: "/admin/products", label: "Products", icon: "🥐" },
   { href: "/admin/bundles", label: "Bundles", icon: "📦" },
+  { href: "/admin/discounts", label: "Discounts", icon: "🏷️" },
   { href: "/admin/staff", label: "Staff", icon: "👥" },
+  { href: "/admin/pin-log", label: "PIN log", icon: "🔑" },
 ];
 
 export function AdminNav({ businessName, email }: { businessName: string; email: string }) {

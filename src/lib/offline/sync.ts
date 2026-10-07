@@ -10,11 +10,15 @@ export class SyncError extends Error {
   }
 }
 
+export type PinUseAction = "sign_in" | "owner_menu" | "owner_view" | "void_approval";
+export type PinUsePayload = { id: string; staff_id: string; action: PinUseAction; used_at: string };
+
 export interface SyncTransport {
   recordSale(sale: SalePayload): Promise<void>;
   voidSale(args: { transaction_id: string; reason: string; staff_id: string; voided_at: string }): Promise<void>;
   adjustStock(payload: Record<string, unknown>): Promise<void>;
   setAvailability(args: { event_product_id: string; available: boolean }): Promise<void>;
+  logPinUse(use: PinUsePayload): Promise<void>;
   fetchSnapshot(eventId: string | null): Promise<Snapshot>;
   heartbeat(unsyncedCount: number, oldestUnsyncedAt: string | null): Promise<void>;
 }
@@ -136,6 +140,8 @@ export class SyncEngine {
         return this.transport.adjustStock(op.payload as Record<string, unknown>);
       case "availability":
         return this.transport.setAvailability(op.payload as Parameters<SyncTransport["setAvailability"]>[0]);
+      case "pin_use":
+        return this.transport.logPinUse(op.payload as PinUsePayload);
     }
   }
 

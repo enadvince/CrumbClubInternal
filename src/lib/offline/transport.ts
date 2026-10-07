@@ -47,6 +47,9 @@ export function supabaseTransport(supabase: SupabaseClient, appVersion = "1"): S
     async setAvailability(a) {
       await rpc("set_availability", { p_event_product_id: a.event_product_id, p_available: a.available }, "Availability");
     },
+    async logPinUse(use) {
+      await rpc("log_pin_use", { p_use: use }, "PIN log");
+    },
     async fetchSnapshot(eventId) {
       return rpc<Snapshot>("pos_snapshot", { p_event_id: eventId }, "Menu download");
     },

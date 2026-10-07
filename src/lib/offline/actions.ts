@@ -1,6 +1,7 @@
 import { saleStockEffects } from "../pos/cart";
 import type { SalePayload } from "../pos/types";
 import type { LocalSale, OutboxOp, PosDatabase } from "./db";
+import type { PinUseAction } from "./sync";
 
 export const UNDO_WINDOW_MS = 60_000;
 
@@ -99,6 +100,21 @@ export async function setAvailabilityLocally(db: PosDatabase, eventId: string, e
     type: "availability",
     eventId,
     payload: { event_product_id: eventProductId, available },
+    effects: [],
+    createdAt: now,
+    status: "pending",
+    attempts: 0,
+  });
+}
+
+/** Records that a PIN was used (sign in, owner menu, void approval). Queued like a sale, so it works offline. */
+export async function logPinUseLocally(db: PosDatabase, staffId: string, action: PinUseAction, eventId = "", now = Date.now()) {
+  const id = crypto.randomUUID();
+  await db.outbox.add({
+    opId: id,
+    type: "pin_use",
+    eventId,
+    payload: { id, staff_id: staffId, action, used_at: new Date(now).toISOString() },
     effects: [],
     createdAt: now,
     status: "pending",

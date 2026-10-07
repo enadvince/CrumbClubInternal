@@ -136,7 +136,7 @@ function ProductEditor({ product, categories, onClose, onSaved }: {
         <Field label="Name" htmlFor="p-name">
           <input id="p-name" required className="input" value={name} onChange={(e) => setName(e.target.value)} />
         </Field>
-        <Field label="Category" htmlFor="p-cat">
+        <Field label="Subcategory" htmlFor="p-cat" hint="Used to filter Individual Items on the POS, e.g. Croissants, Cookies.">
           <input id="p-cat" list="p-cat-list" className="input" value={category} onChange={(e) => setCategory(e.target.value)} />
           <datalist id="p-cat-list">{categories.map((c) => <option key={c} value={c} />)}</datalist>
         </Field>

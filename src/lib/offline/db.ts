@@ -7,7 +7,7 @@ export type OutboxOp = {
   seq?: number;
   /** Idempotency key sent to the server (sale id, void key, adjustment id) */
   opId: string;
-  type: "sale" | "void" | "adjust" | "availability";
+  type: "sale" | "void" | "adjust" | "availability" | "pin_use";
   eventId: string;
   payload: unknown;
   /** Local stock changes this op causes until the server's numbers include it */
