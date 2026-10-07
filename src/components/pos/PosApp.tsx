@@ -60,7 +60,8 @@ export function PosApp() {
   const [showShift, setShowShift] = useState(false);
   const [showSync, setShowSync] = useState(false);
   const [ownerGate, setOwnerGate] = useState(false);
-  const [ownerMenu, setOwnerMenu] = useState<{ staffId: string } | null>(null);
+  // pin is kept only while the menu is open, so "Owner dashboard" doesn't ask for it twice.
+  const [ownerMenu, setOwnerMenu] = useState<{ staffId: string; pin?: string } | null>(null);
   const [ownerViewGate, setOwnerViewGate] = useState(false);
   const [ownerViewState, setOwnerViewState] = useState<{ busy: boolean; error: string | null }>({ busy: false, error: null });
   const [lastSale, setLastSale] = useState<LastSale | null>(null);
@@ -240,6 +241,19 @@ export function PosApp() {
     }
   }
 
+  function showOwnerViewGate() {
+    setOwnerViewState({ busy: false, error: null });
+    setOwnerViewGate(true);
+  }
+
+  /** From the owner menu: reuse the PIN just entered, or ask for it if the menu opened without one. */
+  function ownerViewFromMenu() {
+    const entered = ownerMenu;
+    setOwnerMenu(null);
+    showOwnerViewGate();
+    if (entered?.pin) void openOwnerView(entered.staffId, entered.pin);
+  }
+
   function openOwnerMenu() {
     if (currentStaff?.role === "owner") setOwnerMenu({ staffId: currentStaff.id });
     else setOwnerGate(true);
@@ -289,7 +303,7 @@ export function PosApp() {
         </>
       )}
       {!isPosDemo() && (
-        <button className="btn-ghost min-h-11 text-sm" onClick={() => { setOwnerViewState({ busy: false, error: null }); setOwnerViewGate(true); }}>
+        <button className="btn-ghost min-h-11 text-sm" onClick={showOwnerViewGate}>
           📊 Owner view
         </button>
       )}
@@ -301,7 +315,7 @@ export function PosApp() {
     <>
       <SyncInfo open={showSync} onClose={() => setShowSync(false)} state={syncState} summary={summary} now={now} onSync={() => engineRef.current?.syncOnce()} onOwner={() => { setShowSync(false); openOwnerMenu(); }} />
       <Modal open={ownerGate} onClose={() => setOwnerGate(false)} title="Owner PIN">
-        <PinPad staff={staff} requireOwner title="Enter an owner PIN" onUnlock={(s) => { setOwnerGate(false); setOwnerMenu({ staffId: s.id }); }} onCancel={() => setOwnerGate(false)} />
+        <PinPad staff={staff} requireOwner title="Enter an owner PIN" onUnlock={(s, pin) => { setOwnerGate(false); setOwnerMenu({ staffId: s.id, pin }); }} onCancel={() => setOwnerGate(false)} />
       </Modal>
       <Modal open={ownerViewGate} onClose={() => !ownerViewState.busy && setOwnerViewGate(false)} title="Owner view">
         {!syncState.online ? (
@@ -327,7 +341,7 @@ export function PosApp() {
           />
         )}
       </Modal>
-      <OwnerMenu open={!!ownerMenu} onClose={() => setOwnerMenu(null)} engine={engineRef.current} state={syncState} summary={summary} menu={menu} ownerStaffId={ownerMenu?.staffId ?? ""} onUnpair={unpair} />
+      <OwnerMenu open={!!ownerMenu} onClose={() => setOwnerMenu(null)} engine={engineRef.current} state={syncState} summary={summary} menu={menu} ownerStaffId={ownerMenu?.staffId ?? ""} onUnpair={unpair} onOwnerView={isPosDemo() ? undefined : ownerViewFromMenu} />
     </>
   );
 
