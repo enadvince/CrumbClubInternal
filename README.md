@@ -75,6 +75,7 @@ Import the repo in Vercel, add the three environment variables, and deploy. Vari
 - **Owner** — Supabase email/password. Full access to their business's data.
 - **Device** (the POS tablet) — its own Supabase login, created by an owner through `/pos/pair`. RLS lets it **read** the menu and record sales and stock changes **only through RPCs**. It cannot read staff rows, owner pages, the dashboard, or other businesses.
 - **Staff** — 4-digit PIN on the tablet. PINs are bcrypt hashes, set only through `set_staff_pin` and unique per business. They are checked on the tablet against cached hashes so unlocking works offline. A 4-digit PIN identifies who rang up a sale; the tablet's device login is the real security boundary.
+- **Owner view on the tablet** — tap **📊 Owner view** on the POS and enter an owner PIN to open the owner pages on the tablet. `/api/device/owner-session` (callable only by the device login) checks the PIN on the server, locks the tablet out for 15 minutes after 5 wrong PINs, and returns a session for that owner's own login. The device login is parked in IndexedDB meanwhile. **← Back to POS** (or 5 minutes without a tap) signs the owner out on the tablet and restores the device login. Needs the internet; sync pauses while owner view is open and resumes on return.
 - Every table has `business_id` and RLS, so more businesses can be added later.
 
 ### Offline and sync (single tablet)

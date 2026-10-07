@@ -1,8 +1,10 @@
 "use client";
+import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { getSupabase } from "@/lib/supabase/client";
 import { Logo } from "@/components/ui";
+import { isTabletOwnerView, OWNER_VIEW_IDLE_MS, restoreDeviceSession } from "@/lib/ownerView";
 
 const links = [
   { href: "/admin/dashboard", label: "Dashboard", icon: "📊" },
@@ -16,6 +18,31 @@ const links = [
 export function AdminNav({ businessName, email }: { businessName: string; email: string }) {
   const pathname = usePathname();
   const router = useRouter();
+  // Owner view opened from the POS tablet with an owner PIN.
+  const [onTablet, setOnTablet] = useState(false);
+
+  useEffect(() => {
+    isTabletOwnerView().then(setOnTablet).catch(() => {});
+  }, []);
+
+  const backToPos = useCallback(async () => {
+    await restoreDeviceSession().catch(() => false);
+    // The POS retries the restore on load if it didn't finish here (e.g. offline).
+    window.location.href = "/pos";
+  }, []);
+
+  // Don't leave the owner signed in on a shared tablet: go back to the POS when idle.
+  useEffect(() => {
+    if (!onTablet) return;
+    let timer = setTimeout(backToPos, OWNER_VIEW_IDLE_MS);
+    const reset = () => { clearTimeout(timer); timer = setTimeout(backToPos, OWNER_VIEW_IDLE_MS); };
+    const events = ["pointerdown", "keydown", "scroll"] as const;
+    for (const e of events) window.addEventListener(e, reset, { passive: true });
+    return () => {
+      clearTimeout(timer);
+      for (const e of events) window.removeEventListener(e, reset);
+    };
+  }, [onTablet, backToPos]);
 
   async function signOut() {
     await getSupabase().auth.signOut();
@@ -50,6 +77,14 @@ export function AdminNav({ businessName, email }: { businessName: string; email:
           );
         })}
       </ul>
+      {onTablet && (
+        <div className="mx-2 mb-2 rounded-xl bg-ube-light p-3 text-sm text-ube lg:mx-4">
+          <p className="font-semibold">Owner view on the POS tablet</p>
+          <p className="mb-2">Returns to the POS after 5 minutes without a tap.</p>
+          <button onClick={backToPos} className="btn-primary w-full">← Back to POS</button>
+        </div>
+      )}
+      {!onTablet && (<>
       <div className="hidden space-y-2 px-4 pt-4 lg:block">
         <Link href="/pos/pair" className="btn-secondary w-full text-sm">Set up POS tablet</Link>
         <p className="truncate text-xs text-ink-soft" title={email}>{email}</p>
@@ -59,6 +94,7 @@ export function AdminNav({ businessName, email }: { businessName: string; email:
         <Link href="/pos/pair" className="btn-secondary flex-1 text-sm">Set up POS tablet</Link>
         <button onClick={signOut} className="btn-ghost text-sm">Sign out</button>
       </div>
+      </>)}
     </nav>
   );
 }

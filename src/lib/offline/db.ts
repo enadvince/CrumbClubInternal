@@ -84,4 +84,6 @@ export const KV = {
   lastSyncAt: "lastSyncAt",
   lastSyncError: "lastSyncError",
   syncCounter: "syncCounter",
+  /** The tablet's device login, parked while an owner uses owner view on the tablet */
+  deviceSession: "deviceSession",
 } as const;
