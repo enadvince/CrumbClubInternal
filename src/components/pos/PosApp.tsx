@@ -17,6 +17,8 @@ import {
 import { applySuggestion, suggestBundle } from "@/lib/pos/suggest";
 import type { CartLine, Discount, MenuBundle, PaymentDetails, SnapshotStaff } from "@/lib/pos/types";
 import { formatPeso } from "@/lib/money";
+import { errorMessage } from "@/lib/errors";
+import { enterOwnerView, restoreDeviceSession } from "@/lib/ownerView";
 import { formatDateRange, timeAgo } from "@/lib/time";
 import { Logo, Spinner } from "@/components/ui";
 import { Modal } from "@/components/Modal";
@@ -59,6 +61,8 @@ export function PosApp() {
   const [showSync, setShowSync] = useState(false);
   const [ownerGate, setOwnerGate] = useState(false);
   const [ownerMenu, setOwnerMenu] = useState<{ staffId: string } | null>(null);
+  const [ownerViewGate, setOwnerViewGate] = useState(false);
+  const [ownerViewState, setOwnerViewState] = useState<{ busy: boolean; error: string | null }>({ busy: false, error: null });
   const [lastSale, setLastSale] = useState<LastSale | null>(null);
   const [confirmation, setConfirmation] = useState<LastSale | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -71,6 +75,8 @@ export function PosApp() {
     if (!isSupabaseConfigured()) return setBoot("unconfigured");
     let cancelled = false;
     (async () => {
+      // Coming back from owner view (or it was left open): put the device login back first.
+      await restoreDeviceSession().catch(() => false);
       const paired = await db.getKv<{ userId: string }>("device");
       let userId: string | null = null;
       try {
@@ -218,6 +224,22 @@ export function PosApp() {
     window.location.href = "/pos/pair";
   }
 
+  async function openOwnerView(staffId: string, pin: string) {
+    setOwnerViewState({ busy: true, error: null });
+    const engine = engineRef.current;
+    try {
+      // Upload what we can first; sync pauses while the owner pages are open.
+      await engine?.syncOnce().catch(() => {});
+      engine?.stop();
+      await enterOwnerView(staffId, pin);
+      await db.setKv(KV.activeStaff, null);
+      window.location.href = "/admin/dashboard";
+    } catch (e) {
+      engine?.start();
+      setOwnerViewState({ busy: false, error: errorMessage(e) });
+    }
+  }
+
   function openOwnerMenu() {
     if (currentStaff?.role === "owner") setOwnerMenu({ staffId: currentStaff.id });
     else setOwnerGate(true);
@@ -266,6 +288,11 @@ export function PosApp() {
           </button>
         </>
       )}
+      {!isPosDemo() && (
+        <button className="btn-ghost min-h-11 text-sm" onClick={() => { setOwnerViewState({ busy: false, error: null }); setOwnerViewGate(true); }}>
+          📊 Owner view
+        </button>
+      )}
       <button className="btn-ghost min-h-11 text-sm" onClick={openOwnerMenu}>⚙ Owner</button>
     </header>
   );
@@ -275,6 +302,30 @@ export function PosApp() {
       <SyncInfo open={showSync} onClose={() => setShowSync(false)} state={syncState} summary={summary} now={now} onSync={() => engineRef.current?.syncOnce()} onOwner={() => { setShowSync(false); openOwnerMenu(); }} />
       <Modal open={ownerGate} onClose={() => setOwnerGate(false)} title="Owner PIN">
         <PinPad staff={staff} requireOwner title="Enter an owner PIN" onUnlock={(s) => { setOwnerGate(false); setOwnerMenu({ staffId: s.id }); }} onCancel={() => setOwnerGate(false)} />
+      </Modal>
+      <Modal open={ownerViewGate} onClose={() => !ownerViewState.busy && setOwnerViewGate(false)} title="Owner view">
+        {!syncState.online ? (
+          <div className="space-y-3">
+            <p>○ Owner view needs the internet. Selling keeps working offline.</p>
+            <button className="btn-secondary" onClick={() => setOwnerViewGate(false)}>Close</button>
+          </div>
+        ) : ownerViewState.busy ? (
+          <Spinner label="Opening owner view" />
+        ) : (
+          <PinPad
+            staff={staff}
+            requireOwner
+            title="Enter an owner PIN"
+            subtitle={
+              <>
+                {ownerViewState.error ? <span className="font-semibold text-danger">✕ {ownerViewState.error}</span> : "Opens the dashboard, events and reports on this tablet."}
+                {summary.unsyncedSales > 0 && <span className="block text-sm">{summary.unsyncedSales} unsynced sale(s) will upload when you return to the POS.</span>}
+              </>
+            }
+            onUnlock={(s, pin) => openOwnerView(s.id, pin)}
+            onCancel={() => setOwnerViewGate(false)}
+          />
+        )}
       </Modal>
       <OwnerMenu open={!!ownerMenu} onClose={() => setOwnerMenu(null)} engine={engineRef.current} state={syncState} summary={summary} menu={menu} ownerStaffId={ownerMenu?.staffId ?? ""} onUnpair={unpair} />
     </>

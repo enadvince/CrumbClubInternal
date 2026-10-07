@@ -13,7 +13,8 @@ export function PinPad({
   staff: SnapshotStaff[];
   title: string;
   subtitle?: React.ReactNode;
-  onUnlock: (s: SnapshotStaff) => void;
+  /** Called with the matching staff member and the PIN they entered. */
+  onUnlock: (s: SnapshotStaff, pin: string) => void;
   onCancel?: () => void;
   requireOwner?: boolean;
 }) {
@@ -36,7 +37,7 @@ export function PinPad({
       setChecking(false);
       if (match) {
         setPin("");
-        onUnlock(match);
+        onUnlock(match, next);
       } else {
         setPin("");
         setError(requireOwner ? "That isn't an owner PIN." : "PIN not recognised. Try again.");
