@@ -14,7 +14,7 @@ import { formatDateTime, timeAgo } from "@/lib/time";
 type Tab = "sync" | "stock" | "tablet";
 
 export function OwnerMenu({
-  open, onClose, engine, state, summary, menu, ownerStaffId, onUnpair,
+  open, onClose, engine, state, summary, menu, ownerStaffId, onUnpair, onOwnerView,
 }: {
   open: boolean;
   onClose: () => void;
@@ -24,6 +24,8 @@ export function OwnerMenu({
   menu: Menu | null;
   ownerStaffId: string;
   onUnpair: () => Promise<void>;
+  /** Switches the tablet to the owner pages (dashboard). Absent in demo mode. */
+  onOwnerView?: () => void;
 }) {
   const [tab, setTab] = useState<Tab>("sync");
   const [message, setMessage] = useState<string | null>(null);
@@ -51,6 +53,11 @@ export function OwnerMenu({
 
   return (
     <Modal open={open} onClose={onClose} title="Owner menu" wide>
+      {onOwnerView && (
+        <button className="btn-primary mb-4 w-full" onClick={onOwnerView} disabled={!state.online}>
+          📊 Go to owner dashboard{state.online ? "" : " (needs the internet)"}
+        </button>
+      )}
       <div className="mb-4 flex gap-2" role="tablist">
         {([["sync", "Sync & backup"], ["stock", "Stock"], ["tablet", "Tablet"]] as const).map(([t, label]) => (
           <button key={t} role="tab" aria-selected={tab === t} onClick={() => { setTab(t); setMessage(null); }}
