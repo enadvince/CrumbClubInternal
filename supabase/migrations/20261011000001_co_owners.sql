@@ -35,9 +35,9 @@ begin
 end $$;
 
 -- Only the main owner may remove memberships (devices and co-owners).
-drop policy memberships_owner_delete on public.memberships;
-create policy memberships_main_owner_delete on public.memberships
-  for delete to authenticated using (public.is_main_owner(business_id) and user_id <> auth.uid());
+alter policy memberships_owner_delete on public.memberships rename to memberships_main_owner_delete;
+alter policy memberships_main_owner_delete on public.memberships
+  using (public.is_main_owner(business_id) and user_id <> auth.uid());
 
 -- ---------------------------------------------------------------------------
 -- Managing co-owners (main owner only)
