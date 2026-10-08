@@ -25,9 +25,7 @@ Copy `.env.example` to `.env.local` and fill in:
 |---|---|---|
 | `NEXT_PUBLIC_SUPABASE_URL` | Supabase → Project Settings → API → Project URL | browser + server |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` (or `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`) | Supabase → Project Settings → API → anon / publishable key | browser + server |
-| `SUPABASE_SERVICE_ROLE_KEY` (or `SUPABASE_SECRET_KEY`) | Supabase → Project Settings → API → service_role / secret key. **Server only — never expose it.** | `/api/device/pair` only (creates the tablet's login) |
-| `RESEND_API_KEY`, `INVITE_EMAIL_FROM` | [Resend](https://resend.com) API key and a sender on a domain verified there, e.g. `Crumb Club <invites@yourdomain.com>`. Optional: without them, invites are created and the owner copies the link. | `/api/owners/invite` |
-| `SITE_URL` | The public address of the site, e.g. `https://crumb-club-internal-two.vercel.app`. Used in invite links (defaults to the address the inviting owner is on). | `/api/owners/invite` |
+| `SUPABASE_SERVICE_ROLE_KEY` (or `SUPABASE_SECRET_KEY`) | Supabase → Project Settings → API → service_role / secret key. **Server only — never expose it.** | Server routes: tablet pairing, owner view on the tablet, co-owner sign-in and adding co-owners |
 | `NEXT_PUBLIC_POS_DEMO` | Leave unset in real use. `1` runs the POS against a fake in-browser server (for demos and e2e tests). | POS |
 
 ### Database
@@ -37,7 +35,7 @@ supabase link --project-ref <your-project-ref>
 supabase db push            # applies supabase/migrations/*
 ```
 
-The migrations create every table, RLS policy, RPC function, stock trigger, and a public `photos` storage bucket. In **Supabase → Authentication → Providers → Email**, you may turn off "Confirm email" for faster owner setup. Once the owner account exists, consider turning off new sign-ups.
+The migrations create every table, RLS policy, RPC function, stock trigger, and a public `photos` storage bucket. In **Supabase → Authentication → Providers → Email**, you may turn off "Confirm email" for faster owner setup. The login page only offers sign-up while no business exists; once the owner account exists, also turn off new sign-ups there.
 
 **Local development** (Docker required by the Supabase CLI):
 
@@ -50,7 +48,7 @@ npm run dev                 # http://localhost:3000
 The seed creates a dev owner `owner@crumbclub.test` / `crumbclub123` (owner PIN `1234`), staff PINs `1111` and `2222`, seven pastries, four bundles (two fixed, two mix-and-match), and a draft event.
 
 ### First run (production)
-1. Open the site and create the owner account, then fill in **Set up your business** (name, your name, your 4-digit PIN). Tick "Load a sample menu" if you want example data.
+1. Open the site, enter your email, tap **Proceed** and create the owner account, then fill in **Set up your business** (name, your name, your 4-digit PIN). Tick "Load a sample menu" if you want example data.
 2. Add products (with **cost per piece**), bundles, and staff PINs.
 3. Create an event, set prices and starting stock, then **Go live**.
 4. On the tablet: sign in as the owner, go to **Set up POS tablet**, tap **Use this tablet as the POS**. The tablet now has its own restricted login. Add it to the home screen (Share → Add to Home Screen / Install app).
@@ -58,7 +56,7 @@ The seed creates a dev owner `owner@crumbclub.test` / `crumbclub123` (owner PIN 
 ### Deploy (Vercel)
 Import the repo in Vercel, add the environment variables, and deploy. Variables are read **at build time**: after adding or changing them, redeploy. `public/sw.js` is served with `no-cache` so updates reach the tablet.
 
-**Deployment Protection:** owners, invitees and the tablet must be able to open the site without a Vercel account. In Vercel → Project → Settings → Deployment Protection, set Vercel Authentication to **Standard Protection** (previews only) or turn it off. With "All Deployments except Custom Domains" and no custom domain, every link (including email links) asks for a Vercel login. In Supabase → Authentication → URL Configuration, set **Site URL** to the production address too, so Supabase's own emails link there.
+**Deployment Protection:** owners, co-owners and the tablet must be able to open the site without a Vercel account. In Vercel → Project → Settings → Deployment Protection, set Vercel Authentication to **Standard Protection** (previews only) or turn it off. With "All Deployments except Custom Domains" and no custom domain, every link (including email links) asks for a Vercel login. In Supabase → Authentication → URL Configuration, set **Site URL** to the production address too, so Supabase's own emails link there.
 
 ### Scripts
 
@@ -67,7 +65,7 @@ Import the repo in Vercel, add the environment variables, and deploy. Variables 
 | `npm run dev` / `build` / `start` | Next.js |
 | `npm run typecheck` | `tsc --noEmit` |
 | `npm test` | Unit tests (Vitest): money maths, allocation, cart and bundle logic, sync engine with IndexedDB, exports, dashboard insights |
-| `npm run test:db` | Applies every migration and the seed to a throwaway Postgres 16, then runs `supabase/tests/*.test.sql` (RLS isolation, idempotent sales, voids returning stock, close/report and dashboard figures, owner invites) |
+| `npm run test:db` | Applies every migration and the seed to a throwaway Postgres 16, then runs `supabase/tests/*.test.sql` (RLS isolation, idempotent sales, voids returning stock, close/report and dashboard figures, co-owner sign-in and lockout) |
 | `npm run test:e2e` | Playwright: builds the app in demo mode and tests the POS offline (offline sales, sync on reconnect, cold start without network, bundles, QR Ph). Set `PLAYWRIGHT_CHROMIUM_PATH` if browsers are preinstalled elsewhere. |
 | `python3 scripts/make-icons.py` | Regenerates the PWA icons |
 
@@ -76,8 +74,9 @@ Import the repo in Vercel, add the environment variables, and deploy. Variables 
 ## 2. How it works
 
 ### Roles and security
-- **Owner** — Supabase email/password. Full access to their business's data.
-- **Inviting owners** — on **Owners**, an owner enters an email address. The invitee gets an email with a one-time link (expires in 7 days) to `/invite/<token>`, where they choose a password, their name and a 4-digit PIN, and join as an owner. If that email already has an account, they sign in with it instead. Only a SHA-256 hash of the token is stored; the account's email must match the invited email; re-inviting replaces the old link, and an open invite can be cancelled.
+- **Main owner** — the person who created the business. Signs in with email and password. Full access to the business's data, and the only one who can manage co-owners.
+- **Co-owners** — added by the main owner on **Owners** (name, email, 4-digit PIN). They sign in with email and PIN, see everything an owner sees, but can't add, remove or reset owners or unpair devices. Behind the scenes each co-owner has a Supabase login with a random password nobody knows; `/api/auth/co-owner` checks the PIN in the database (`co_owner_pin_login`) and returns a session. **Lockout:** 5 wrong PINs lock that co-owner's sign-in for 15 minutes; 5 more wrong PINs after that lock it until the main owner uses **Reset PIN & unlock**. Every co-owner sign-in is recorded in the PIN log. Removing a co-owner ends their access and keeps their name on past sales.
+- **Login page** — enter your email and tap **Proceed**: the main owner is asked for a password, a co-owner for a PIN. The page therefore reveals whether an email is registered, which is acceptable for this internal app.
 - **Device** (the POS tablet) — its own Supabase login, created by an owner through `/pos/pair`. RLS lets it **read** the menu and record sales and stock changes **only through RPCs**. It cannot read staff rows, owner pages, the dashboard, or other businesses.
 - **Staff** — 4-digit PIN on the tablet. PINs are bcrypt hashes, set only through `set_staff_pin` (first PIN) or `change_staff_pin` (which requires the current PIN), and unique per business. They are checked on the tablet against cached hashes so unlocking works offline. A 4-digit PIN identifies who rang up a sale; the tablet's device login is the real security boundary.
 - **Owner view on the tablet** — tap **📊 Owner view** on the POS and enter an owner PIN to open the owner pages on the tablet. `/api/device/owner-session` (callable only by the device login) checks the PIN on the server, locks the tablet out for 15 minutes after 5 wrong PINs, and returns a session for that owner's own login. The device login is parked in IndexedDB meanwhile. **← Back to POS** (or 5 minutes without a tap) signs the owner out on the tablet and restores the device login. Needs the internet; sync pauses while owner view is open and resumes on return.
@@ -116,7 +115,7 @@ Import the repo in Vercel, add the environment variables, and deploy. Variables 
 - When loose items in the cart match a bundle that is cheaper, the cart offers a one-tap "Switch to *bundle* and save ₱X".
 
 ### Data model (main tables)
-- **Setup:** `businesses`, `memberships` (auth user → business, owner/device), `staff`, `owner_invites`
+- **Setup:** `businesses`, `memberships` (auth user → business, owner/device, co-owner flag and PIN lockout), `staff`
 - **Catalog:** `products`, `bundles`, `bundle_items`
 - **Events:** `events`, `event_products`, `event_bundles`
 - **Sales:** `transactions` → `transaction_lines` → `transaction_line_components`

@@ -21,12 +21,35 @@ export async function getServerSupabase() {
   });
 }
 
-/** Service-role client. Server only; bypasses RLS. Used solely for device pairing. */
+/** Service-role client. Server only; bypasses RLS. */
 export function getServiceSupabase() {
   const { url } = supabaseEnv();
   const key = serviceRoleKey();
   if (!key) throw new Error("SUPABASE_SERVICE_ROLE_KEY (or SUPABASE_SECRET_KEY) is not set");
   return createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } });
+}
+
+/**
+ * Starts a session for an existing login without its password: a magic-link
+ * token is generated and verified right away (no email is sent). Only call
+ * this after the server has checked who the caller is (e.g. a PIN).
+ */
+export async function mintSession(email: string) {
+  const admin = getServiceSupabase();
+  const { data: link, error: linkError } = await admin.auth.admin.generateLink({ type: "magiclink", email });
+  if (linkError || !link.properties?.hashed_token) {
+    return { session: null, error: linkError?.message ?? "Could not start session" };
+  }
+  const { url, anonKey } = supabaseEnv();
+  const anon = createClient(url, anonKey, { auth: { persistSession: false, autoRefreshToken: false } });
+  const { data: verified, error: verifyError } = await anon.auth.verifyOtp({ type: "magiclink", token_hash: link.properties.hashed_token });
+  if (verifyError || !verified.session) {
+    return { session: null, error: verifyError?.message ?? "Could not start session" };
+  }
+  return {
+    session: { access_token: verified.session.access_token, refresh_token: verified.session.refresh_token },
+    error: null,
+  };
 }
 
 export type Membership = { business_id: string; role: "owner" | "device"; business_name: string };

@@ -1,9 +1,7 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
 import bcrypt from "bcryptjs";
 import { randomUUID } from "node:crypto";
-import { getServiceSupabase, getSessionContext } from "@/lib/supabase/server";
-import { supabaseEnv } from "@/lib/supabase/env";
+import { getServiceSupabase, getSessionContext, mintSession } from "@/lib/supabase/server";
 import { lockRemaining, nextLock, type OwnerPinLock } from "@/lib/ownerPinLock";
 
 /**
@@ -79,20 +77,8 @@ export async function POST(request: Request) {
     device_label: device?.label ?? null,
   });
 
-  // Mint a session for the owner: a magic link token that is verified right away (no email is sent).
-  const { data: link, error: linkError } = await admin.auth.admin.generateLink({ type: "magiclink", email: owner.user.email });
-  if (linkError || !link.properties?.hashed_token) {
-    return NextResponse.json({ error: linkError?.message ?? "Could not start owner session" }, { status: 500 });
-  }
-  const { url, anonKey } = supabaseEnv();
-  const anon = createClient(url, anonKey, { auth: { persistSession: false, autoRefreshToken: false } });
-  const { data: verified, error: verifyError } = await anon.auth.verifyOtp({ type: "magiclink", token_hash: link.properties.hashed_token });
-  if (verifyError || !verified.session) {
-    return NextResponse.json({ error: verifyError?.message ?? "Could not start owner session" }, { status: 500 });
-  }
-
-  return NextResponse.json({
-    access_token: verified.session.access_token,
-    refresh_token: verified.session.refresh_token,
-  });
+  // Mint a session for the owner (no email is sent).
+  const { session, error: sessionError } = await mintSession(owner.user.email);
+  if (!session) return NextResponse.json({ error: sessionError ?? "Could not start owner session" }, { status: 500 });
+  return NextResponse.json(session);
 }

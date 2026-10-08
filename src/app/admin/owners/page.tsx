@@ -2,170 +2,164 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { getSupabase } from "@/lib/supabase/client";
 import { useOwner } from "../OwnerContext";
-import { EmptyState, Field, Notice, PageHeader, Spinner } from "@/components/ui";
+import { Field, Notice, PageHeader, Spinner } from "@/components/ui";
 import { Modal } from "@/components/Modal";
 import { errorMessage } from "@/lib/errors";
 import { formatDateTime } from "@/lib/time";
 
-type Owner = { user_id: string; email: string; name: string | null; joined_at: string };
-type Invite = {
-  id: string; email: string; created_at: string; expires_at: string;
-  accepted_at: string | null; revoked_at: string | null;
+type Owner = {
+  user_id: string; email: string; name: string | null; co_owner: boolean; joined_at: string;
+  pin_locked_until: string | null;
 };
-type Sent = { email: string; link: string; emailed: boolean; emailError: string | null };
 
-function inviteStatus(i: Invite): { label: string; className: string } {
-  if (i.accepted_at) return { label: "✓ Joined", className: "bg-ok-light text-ok" };
-  if (i.revoked_at) return { label: "Cancelled", className: "bg-crust text-ink-soft" };
-  if (new Date(i.expires_at) <= new Date()) return { label: "Expired", className: "bg-crust text-ink-soft" };
-  return { label: "Pending", className: "bg-warn-light text-warn" };
+/** "locked" until the main owner resets the PIN, "wait" for a 15-minute lock, or null. */
+function lockState(o: Owner): "locked" | "wait" | null {
+  if (!o.pin_locked_until) return null;
+  if (o.pin_locked_until === "infinity") return "locked";
+  return new Date(o.pin_locked_until) > new Date() ? "wait" : null;
 }
 
-/** Everyone with access to the owner pages, and email invites for new owners. */
+const pinInput = "input text-center text-2xl tracking-[0.6em]";
+const digits = (v: string) => v.replace(/\D/g, "").slice(0, 4);
+
+/** The main owner and co-owners. Only the main owner can add or remove co-owners or reset their PINs. */
 export default function OwnersPage() {
   const { businessId, userId } = useOwner();
   const [owners, setOwners] = useState<Owner[] | null>(null);
-  const [invites, setInvites] = useState<Invite[]>([]);
   const [error, setError] = useState<string | null>(null);
-  const [inviting, setInviting] = useState(false);
-  const [sent, setSent] = useState<Sent | null>(null);
+  const [adding, setAdding] = useState(false);
+  const [resetFor, setResetFor] = useState<Owner | null>(null);
 
   const load = useCallback(async () => {
-    const supabase = getSupabase();
-    const [o, i] = await Promise.all([
-      supabase.rpc("business_owners", { p_business: businessId }),
-      supabase.from("owner_invites")
-        .select("id, email, created_at, expires_at, accepted_at, revoked_at")
-        .order("created_at", { ascending: false }).limit(50),
-    ]);
-    if (o.error || i.error) setError(errorMessage(o.error ?? i.error));
-    setOwners((o.data as Owner[]) ?? []);
-    setInvites((i.data as Invite[]) ?? []);
+    const { data, error } = await getSupabase().rpc("business_owners", { p_business: businessId });
+    if (error) setError(errorMessage(error));
+    setOwners((data as Owner[]) ?? []);
   }, [businessId]);
   useEffect(() => { load(); }, [load]);
 
-  async function revoke(i: Invite) {
-    if (!confirm(`Cancel the invite for ${i.email}? The link will stop working.`)) return;
-    const { error } = await getSupabase().rpc("revoke_owner_invite", { p_invite_id: i.id });
+  const isMain = !!owners?.some((o) => o.user_id === userId && !o.co_owner);
+
+  async function remove(o: Owner) {
+    if (!confirm(`Remove ${o.name ?? o.email} as a co-owner? They will no longer be able to sign in.`)) return;
+    const { error } = await getSupabase().rpc("remove_co_owner", { p_user: o.user_id });
     if (error) setError(errorMessage(error));
     load();
   }
-
-  async function resend(email: string) {
-    setError(null);
-    const res = await fetch("/api/owners/invite", {
-      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email }),
-    });
-    const body = await res.json().catch(() => ({}));
-    if (!res.ok) setError(body.error ?? "Could not send the invite");
-    else setSent(body as Sent);
-    load();
-  }
-
-  // Hide replaced invites: show the newest one per email.
-  const latest = invites.filter((inv, idx) => invites.findIndex((x) => x.email === inv.email) === idx);
 
   return (
     <>
       <PageHeader
         title="Owners"
-        subtitle="People who can sign in to the owner pages. Invite someone by email to give them access."
-        actions={<button className="btn-primary" onClick={() => setInviting(true)}>+ Invite owner</button>}
+        subtitle="People who can open the owner pages. Co-owners sign in with their email and 4-digit PIN."
+        actions={isMain && <button className="btn-primary" onClick={() => setAdding(true)}>+ Add co-owner</button>}
       />
       {error && <Notice tone="danger" className="mb-4">{error}</Notice>}
-      {sent && <SentNotice sent={sent} onClose={() => setSent(null)} />}
-
-      {!owners ? <Spinner /> : (
-        <div className="card mb-6 divide-y divide-crust-dark">
-          {owners.map((o) => (
-            <div key={o.user_id} className="flex flex-wrap items-center gap-3 p-4">
-              <div className="min-w-40 flex-1">
-                <p className="font-semibold">{o.name ?? o.email} {o.user_id === userId && <span className="badge bg-crust text-ink-soft">You</span>}</p>
-                <p className="text-sm text-ink-soft">{o.email} · Owner since {formatDateTime(o.joined_at)}</p>
-              </div>
-            </div>
-          ))}
-        </div>
+      {owners && !isMain && (
+        <Notice className="mb-4">Only the main owner can add or remove co-owners and reset their PINs.</Notice>
       )}
 
-      <h2 className="mb-2 text-lg font-bold">Invites</h2>
-      {latest.length === 0 ? <EmptyState>No invites yet.</EmptyState> : (
+      {!owners ? <Spinner /> : (
         <div className="card divide-y divide-crust-dark">
-          {latest.map((i) => {
-            const status = inviteStatus(i);
-            const open = status.label === "Pending";
+          {owners.map((o) => {
+            const lock = lockState(o);
             return (
-              <div key={i.id} className="flex flex-wrap items-center gap-3 p-4">
+              <div key={o.user_id} className="flex flex-wrap items-center gap-3 p-4">
                 <div className="min-w-40 flex-1">
-                  <p className="font-semibold">{i.email} <span className={`badge ${status.className}`}>{status.label}</span></p>
-                  <p className="text-sm text-ink-soft">
-                    Sent {formatDateTime(i.created_at)}
-                    {open && ` · Expires ${formatDateTime(i.expires_at)}`}
-                    {i.accepted_at && ` · Joined ${formatDateTime(i.accepted_at)}`}
+                  <p className="font-semibold">
+                    {o.name ?? o.email}{" "}
+                    <span className="badge bg-crust text-ink-soft">{o.co_owner ? "Co-owner" : "Main owner"}</span>{" "}
+                    {o.user_id === userId && <span className="badge bg-crust text-ink-soft">You</span>}{" "}
+                    {lock === "locked" && <span className="badge bg-danger-light text-danger">🔒 Locked until PIN reset</span>}
+                    {lock === "wait" && <span className="badge bg-warn-light text-warn">🔒 Locked for 15 min</span>}
                   </p>
+                  <p className="text-sm text-ink-soft">{o.email} · Since {formatDateTime(o.joined_at)}</p>
                 </div>
-                {!i.accepted_at && <button className="btn-secondary" onClick={() => resend(i.email)}>{open ? "Resend" : "Invite again"}</button>}
-                {open && <button className="btn-ghost" onClick={() => revoke(i)}>Cancel</button>}
+                {isMain && o.co_owner && (
+                  <>
+                    <button className="btn-secondary" onClick={() => setResetFor(o)}>{lock ? "Reset PIN & unlock" : "Reset PIN"}</button>
+                    <button className="btn-ghost" onClick={() => remove(o)}>Remove</button>
+                  </>
+                )}
               </div>
             );
           })}
         </div>
       )}
 
-      <InviteModal open={inviting} onClose={() => setInviting(false)} onSent={(s) => { setInviting(false); setSent(s); load(); }} />
+      <AddCoOwnerModal open={adding} onClose={() => setAdding(false)} onSaved={() => { setAdding(false); load(); }} />
+      <ResetPinModal owner={resetFor} onClose={() => setResetFor(null)} onSaved={() => { setResetFor(null); load(); }} />
     </>
   );
 }
 
-function SentNotice({ sent, onClose }: { sent: Sent; onClose: () => void }) {
-  const [copied, setCopied] = useState(false);
-  async function copy() {
-    await navigator.clipboard.writeText(sent.link).then(() => setCopied(true)).catch(() => {});
-  }
-  return (
-    <Notice tone={sent.emailed ? "ok" : "warn"} className="mb-4">
-      <p>
-        {sent.emailed
-          ? `Invite sent to ${sent.email}.`
-          : `The invite for ${sent.email} was created, but the email could not be sent${sent.emailError ? ` (${sent.emailError})` : ""}. Send them this link yourself:`}
-      </p>
-      {!sent.emailed && <p className="mt-1 break-all font-mono text-xs">{sent.link}</p>}
-      <div className="mt-2 flex flex-wrap gap-2">
-        <button className="btn-secondary text-sm" onClick={copy}>{copied ? "✓ Copied" : "Copy invite link"}</button>
-        <button className="btn-ghost text-sm" onClick={onClose}>Dismiss</button>
-      </div>
-    </Notice>
-  );
-}
-
-function InviteModal({ open, onClose, onSent }: { open: boolean; onClose: () => void; onSent: (s: Sent) => void }) {
+function AddCoOwnerModal({ open, onClose, onSaved }: { open: boolean; onClose: () => void; onSaved: () => void }) {
+  const [name, setName] = useState("");
   const [email, setEmail] = useState("");
+  const [pin, setPin] = useState("");
   const [error, setError] = useState<string | null>(null);
-  const [sending, setSending] = useState(false);
-  useEffect(() => { if (open) { setEmail(""); setError(null); } }, [open]);
+  const [saving, setSaving] = useState(false);
+  useEffect(() => { if (open) { setName(""); setEmail(""); setPin(""); setError(null); } }, [open]);
 
   async function submit(e: FormEvent) {
     e.preventDefault();
-    setSending(true);
+    setSaving(true);
     setError(null);
-    const res = await fetch("/api/owners/invite", {
-      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email }),
+    const res = await fetch("/api/owners/co-owners", {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name, email, pin }),
     }).catch(() => null);
-    setSending(false);
+    setSaving(false);
     const body = await res?.json().catch(() => ({}));
-    if (!res?.ok) return setError(body?.error ?? "Could not send the invite. Check your connection.");
-    onSent(body as Sent);
+    if (!res?.ok) return setError(body?.error ?? "Could not add the co-owner. Check your connection.");
+    onSaved();
   }
 
   return (
-    <Modal open={open} onClose={onClose} title="Invite an owner">
+    <Modal open={open} onClose={onClose} title="Add a co-owner">
       <form onSubmit={submit} className="space-y-4">
         {error && <Notice tone="danger">{error}</Notice>}
-        <Field label="Email" htmlFor="invite-email" hint="They get a link to create an account. It works once and expires in 7 days.">
-          <input id="invite-email" type="email" autoFocus required className="input" value={email} onChange={(e) => setEmail(e.target.value)} />
+        <Field label="Name (shown on sales they ring up)" htmlFor="co-name">
+          <input id="co-name" autoFocus required className="input" value={name} onChange={(e) => setName(e.target.value)} />
         </Field>
-        <Notice tone="warn">Owners can see all sales, costs and staff, and can invite other owners.</Notice>
-        <button className="btn-primary w-full" disabled={sending}>{sending ? "Sending…" : "Send invite"}</button>
+        <Field label="Email" htmlFor="co-email" hint="They sign in with this email.">
+          <input id="co-email" type="email" required className="input" value={email} onChange={(e) => setEmail(e.target.value)} />
+        </Field>
+        <Field label="Their 4-digit PIN" htmlFor="co-pin" hint="Tell them their PIN. It also works on the POS tablet. They can change it later on the Staff page.">
+          <input id="co-pin" type="password" required inputMode="numeric" autoComplete="off" pattern="\d{4}" maxLength={4}
+            className={pinInput} value={pin} onChange={(e) => setPin(digits(e.target.value))} />
+        </Field>
+        <Notice tone="warn">Co-owners can see all sales, costs and staff. They can&apos;t add or remove owners.</Notice>
+        <button className="btn-primary w-full" disabled={saving || pin.length !== 4}>{saving ? "Adding…" : "Add co-owner"}</button>
+      </form>
+    </Modal>
+  );
+}
+
+function ResetPinModal({ owner, onClose, onSaved }: { owner: Owner | null; onClose: () => void; onSaved: () => void }) {
+  const [pin, setPin] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  useEffect(() => { setPin(""); setError(null); }, [owner]);
+
+  async function submit(e: FormEvent) {
+    e.preventDefault();
+    if (!owner) return;
+    setSaving(true);
+    const { error } = await getSupabase().rpc("reset_co_owner_pin", { p_user: owner.user_id, p_pin: pin });
+    setSaving(false);
+    if (error) return setError(errorMessage(error));
+    onSaved();
+  }
+
+  return (
+    <Modal open={!!owner} onClose={onClose} title={`New PIN for ${owner?.name ?? owner?.email ?? ""}`}>
+      <form onSubmit={submit} className="space-y-4">
+        {error && <Notice tone="danger">{error}</Notice>}
+        <p className="text-sm text-ink-soft">This replaces their PIN and unlocks their sign-in.</p>
+        <Field label="New 4-digit PIN" htmlFor="reset-pin">
+          <input id="reset-pin" autoFocus required type="password" inputMode="numeric" autoComplete="off" pattern="\d{4}" maxLength={4}
+            className={pinInput} value={pin} onChange={(e) => setPin(digits(e.target.value))} />
+        </Field>
+        <button className="btn-primary w-full" disabled={saving || pin.length !== 4}>{saving ? "Saving…" : "Set PIN"}</button>
       </form>
     </Modal>
   );
