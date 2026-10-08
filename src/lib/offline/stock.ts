@@ -50,8 +50,8 @@ export function summarizeOutbox(ops: readonly OutboxOp[]): UnsyncedSummary {
   let oldest: number | null = null;
   for (const op of ops) {
     if (op.status === "synced") continue;
-    if (op.status === "pending") pending++;
-    else failed++;
+    if (op.status === "failed") failed++;
+    else pending++; // pending or syncing
     if (op.type === "sale") unsyncedSales++;
     if (oldest === null || op.createdAt < oldest) oldest = op.createdAt;
   }
