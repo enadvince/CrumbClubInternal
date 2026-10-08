@@ -38,8 +38,8 @@ export function DashboardBody({ report, prev, prevLabel }: { report: DashboardRe
 function Insights({ lines }: { lines: string[] }) {
   if (!lines.length) return null;
   return (
-    <section className="card border-l-4 border-l-ube p-4" aria-labelledby="ins-h">
-      <h2 id="ins-h" className="mb-2 font-bold">💡 Insights</h2>
+    <section className="card bg-gradient-to-br from-ube-light to-paper p-5" aria-labelledby="ins-h">
+      <h2 id="ins-h" className="mb-2 font-bold text-ube">💡 Insights</h2>
       <ul className="list-disc space-y-1 pl-5">{lines.map((l) => <li key={l}>{l}</li>)}</ul>
     </section>
   );
@@ -60,11 +60,12 @@ function Delta({ current, previous, invert = false, label }: { current: number; 
 
 function Kpi({ label, value, sub, children }: { label: string; value: string; sub?: string; children?: React.ReactNode }) {
   return (
-    <div className="card p-3">
-      <p className="text-xs font-semibold text-ink-soft">{label}</p>
-      <p className="text-2xl font-black tabular-nums">{value}</p>
-      {sub && <p className="text-xs text-ink-soft">{sub}</p>}
-      {children}
+    <div className="card relative overflow-hidden p-4">
+      <span aria-hidden className="absolute top-4 bottom-4 left-0 w-1 rounded-r-full bg-caramel/70" />
+      <p className="eyebrow">{label}</p>
+      <p className="mt-1 text-2xl font-black tracking-tight tabular-nums sm:text-3xl">{value}</p>
+      {sub && <p className="mt-1 text-xs text-ink-soft">{sub}</p>}
+      {children && <div className="mt-1">{children}</div>}
     </div>
   );
 }
@@ -90,8 +91,8 @@ function Kpis({ r, prev, prevLabel }: { r: DashboardReport; prev: DashboardRepor
         <Kpi label="Items sold" value={String(k.items)}><Delta current={k.items} previous={pv((x) => x.items)} label={prevLabel} /></Kpi>
       </section>
       <section className="grid gap-3 md:grid-cols-3" aria-label="Payment and bundle mix">
-        <div className="card p-3 md:col-span-1">
-          <p className="text-xs font-semibold text-ink-soft">Cash vs QR Ph</p>
+        <div className="card p-4 md:col-span-1">
+          <p className="eyebrow">Cash vs QR Ph</p>
           <div className="mt-2 flex h-3 overflow-hidden rounded-full" aria-hidden>
             <div style={{ width: `${cashPct}%`, background: "var(--color-series-1)" }} />
             <div className="ml-0.5 flex-1" style={{ background: "var(--color-series-2)" }} />

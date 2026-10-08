@@ -15,8 +15,7 @@ const links = [
   { href: "/admin/products", label: "Products", icon: "🥐" },
   { href: "/admin/bundles", label: "Bundles", icon: "📦" },
   { href: "/admin/discounts", label: "Discounts", icon: "🏷️" },
-  { href: "/admin/staff", label: "Staff", icon: "👥" },
-  { href: "/admin/owners", label: "Owners", icon: "🔐" },
+  { href: "/admin/personnel", label: "Personnel", icon: "👥" },
   { href: "/admin/pin-log", label: "PIN log", icon: "🔑" },
   { href: "/admin/audit", label: "Audit log", icon: "📜" },
 ];
@@ -60,7 +59,7 @@ export function AdminNav({ businessName, email }: { businessName: string; email:
   }
 
   return (
-    <nav aria-label="Owner" className="no-print sticky top-0 z-20 border-b border-crust-dark bg-paper lg:h-dvh lg:w-60 lg:shrink-0 lg:overflow-y-auto lg:border-r lg:border-b-0">
+    <nav aria-label="Owner" className="no-print sticky top-0 z-20 border-b border-crust bg-paper lg:h-dvh lg:w-60 lg:shrink-0 lg:overflow-y-auto lg:border-r lg:border-b-0">
       <div className="flex items-center justify-between gap-2 px-4 py-3 lg:block lg:py-5">
         <div>
           <Logo className="text-xl text-caramel" />
@@ -79,8 +78,10 @@ export function AdminNav({ businessName, email }: { businessName: string; email:
               <Link
                 href={l.href}
                 aria-current={active ? "page" : undefined}
-                className={`flex min-h-11 items-center gap-2 whitespace-nowrap rounded-xl px-3 font-semibold ${
-                  active ? "bg-caramel text-white hover:bg-caramel-dark" : "text-ink hover:bg-crust active:bg-crust-dark"
+                className={`relative flex min-h-11 items-center gap-2 whitespace-nowrap rounded-xl px-3 font-semibold transition-colors ${
+                  active
+                    ? "bg-crust text-caramel-dark before:absolute before:inset-x-3 before:bottom-0 before:h-0.5 before:rounded-full before:bg-caramel lg:before:inset-x-auto lg:before:inset-y-2 lg:before:left-0 lg:before:h-auto lg:before:w-1"
+                    : "text-ink-soft hover:bg-cream hover:text-ink active:bg-crust"
                 }`}
               >
                 <span aria-hidden>{l.icon}</span>

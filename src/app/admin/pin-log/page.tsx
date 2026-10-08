@@ -12,7 +12,7 @@ type PinUse = {
   staff_id: string | null;
   staff_name: string;
   staff_role: "owner" | "staff";
-  action: "sign_in" | "owner_menu" | "owner_view" | "void_approval";
+  action: "sign_in" | "owner_menu" | "owner_view" | "void_approval" | "co_owner_login";
   used_at: string;
   device_label: string | null;
 };
@@ -23,6 +23,7 @@ const PIN_ACTION_LABEL: Record<PinUse["action"], string> = {
   owner_menu: "Opened the owner menu",
   owner_view: "Opened owner view on the tablet",
   void_approval: "Approved a void",
+  co_owner_login: "Signed in to the owner pages (co-owner)",
 };
 
 /** Every time a PIN was used, by owners and staff. Read-only: the log can't be edited or deleted. */

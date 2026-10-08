@@ -27,9 +27,7 @@ Copy `.env.example` to `.env.local` and fill in:
 |---|---|---|
 | `NEXT_PUBLIC_SUPABASE_URL` | Supabase → Project Settings → API → Project URL | browser + server |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` (or `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`) | Supabase → Project Settings → API → anon / publishable key | browser + server |
-| `SUPABASE_SERVICE_ROLE_KEY` (or `SUPABASE_SECRET_KEY`) | Supabase → Project Settings → API → service_role / secret key. **Server only, never expose it.** | `/api/device/pair` only (creates the tablet's login) |
-| `RESEND_API_KEY`, `INVITE_EMAIL_FROM` | [Resend](https://resend.com) API key and a sender on a verified domain, e.g. `Crumb Club <invites@yourdomain.com>`. Optional: without them, invites are created and the owner copies the link. | `/api/owners/invite` |
-| `SITE_URL` | The public address of the site. Used in invite links. | `/api/owners/invite` |
+| `SUPABASE_SERVICE_ROLE_KEY` (or `SUPABASE_SECRET_KEY`) | Supabase → Project Settings → API → service_role / secret key. **Server only, never expose it.** | Server routes: tablet pairing, owner view on the tablet, co-owner sign-in and adding co-owners |
 | `NEXT_PUBLIC_SUPPORT_URL` | Optional. Where "Contact support" points (UTM tags are added). Defaults to Waddle Labs. | public pages |
 | `NEXT_PUBLIC_POS_DEMO` | Leave unset in real use. `1` runs the POS against a fake in-browser server (for demos and e2e tests). | POS |
 
@@ -47,7 +45,7 @@ supabase link --project-ref <your-project-ref>
 supabase db push            # applies supabase/migrations/*
 ```
 
-The migrations create every table, RLS policy, RPC, stock trigger, the storage buckets (`photos` public; `payment-proofs` and `backups` private) and the nightly backup schedule. In **Supabase → Authentication → Providers → Email**, you may turn off "Confirm email" for faster owner setup.
+The migrations create every table, RLS policy, RPC, stock trigger, the storage buckets (`photos` public; `payment-proofs` and `backups` private) and the nightly backup schedule. In **Supabase → Authentication → Providers → Email**, you may turn off "Confirm email" for faster owner setup. The login page only offers sign-up while no business exists; once the owner account exists, also turn off new sign-ups there.
 
 ### Nightly backups (once per project)
 
@@ -75,15 +73,15 @@ npm run dev                 # http://localhost:3000
 The seed creates a dev owner `owner@crumbclub.test` / `crumbclub123` (owner PIN `1234`), staff PINs `1111` and `2222`, seven pastries, four bundles, and a draft event.
 
 ### First run (production)
-1. Open the site and create the owner account, then fill in **Set up your business** (name, your name, your 4-digit PIN). Tick "Load a sample menu" if you want example data.
-2. Add products (with **cost per piece**, stock tracking and low stock alert), bundles, and staff PINs.
+1. Open the site, enter your email, tap **Proceed** and create the owner account, then fill in **Set up your business** (name, your name, your 4-digit PIN). Tick "Load a sample menu" if you want example data.
+2. Add products (with **cost per piece**, stock tracking and low stock alert), bundles, and staff and co-owners on **Personnel**.
 3. Create an event, set prices and starting stock, then **Go live**.
 4. On the tablet: sign in as the owner, go to **Set up POS tablet**, tap **Use this tablet as the POS**. The tablet gets its own restricted login and a code (T1, T2...). Install the app (browser menu → Install app / Add to home screen).
 
 ### Deploy (Vercel)
 Import the repo in Vercel, add the environment variables, and deploy. Variables are read **at build time**: after adding or changing them, redeploy. The service worker (`/serwist/sw.js`) is served with `no-cache` so updates reach the tablet; they install in the background and wait for **Update now**.
 
-**Deployment Protection:** owners, invitees and the tablet must be able to open the site without a Vercel account. In Vercel → Project → Settings → Deployment Protection, set Vercel Authentication to **Standard Protection** (previews only) or turn it off. In Supabase → Authentication → URL Configuration, set **Site URL** to the production address too.
+**Deployment Protection:** owners, co-owners and the tablet must be able to open the site without a Vercel account. In Vercel → Project → Settings → Deployment Protection, set Vercel Authentication to **Standard Protection** (previews only) or turn it off. In Supabase → Authentication → URL Configuration, set **Site URL** to the production address too.
 
 ### Scripts
 
@@ -92,7 +90,7 @@ Import the repo in Vercel, add the environment variables, and deploy. Variables 
 | `npm run dev` / `build` / `start` | Next.js |
 | `npm run typecheck` | `tsc --noEmit` for the app and the service worker |
 | `npm test` | Unit tests (Vitest): order numbers, backoff, sync states, idempotent re-send, PIN lockout, offline stock, refunds, expected cash, variance rule, CSV rules, backup files, exports and more |
-| `npm run test:db` | Applies every migration and the seed to a throwaway Postgres 16, runs `supabase/tests/*.test.sql`, then the integration tests (`src/**/*.integration.test.ts`): the real sync engine against the real SQL functions (3 offline orders then a forced resync, offline void and refund with audit and stock, a full offline shift matching the server's report) |
+| `npm run test:db` | Applies every migration and the seed to a throwaway Postgres 16, runs `supabase/tests/*.test.sql` (RLS isolation, idempotent sales, voids and refunds returning stock, order numbers and devices, payments, shifts, backups, reports, co-owner sign-in and lockout, personnel rules), then the integration tests (`src/**/*.integration.test.ts`): the real sync engine against the real SQL functions (3 offline orders then a forced resync, offline void and refund with audit and stock, a full offline shift matching the server's report) |
 | `npm run test:e2e` | Playwright: builds the app in demo mode and tests the POS offline (cold start, order numbers, sync panel, voids, refunds, PIN lockout, shift close, emergency export, dark mode, 404). Set `PLAYWRIGHT_CHROMIUM_PATH` if browsers are preinstalled elsewhere. |
 | `python3 scripts/make-icons.py` | Regenerates the PWA icons |
 
@@ -101,8 +99,11 @@ Import the repo in Vercel, add the environment variables, and deploy. Variables 
 ## 2. How it works
 
 ### Roles and security
-- **Owner**: Supabase email/password. Full access to their business's data. Owners are also the "managers" who approve voids, refunds, cash out and large cash variances with their PIN.
-- **Inviting owners**: on **Owners**, an owner enters an email address. The invitee gets a one-time link (expires in 7 days) to `/invite/<token>`.
+- **Main owner**: the person who created the business. Signs in with email and password. Full access to the business's data, and the only one who can manage co-owners.
+- **Co-owners**: added by the main owner on **Personnel** (name, email, 4-digit PIN). They sign in with email and PIN and see everything an owner sees, but can't add, remove or reset owners or unpair devices. 5 wrong PINs lock that co-owner's sign-in for 15 minutes; 5 more lock it until the main owner uses **Reset PIN & unlock**.
+- **Owners are the managers**: any active owner (main or co-owner) approves voids, refunds, cash out and large cash variances with their PIN. A deactivated co-owner can't approve.
+- **Login page**: enter your email and tap **Proceed**. The main owner is asked for a password, a co-owner for a PIN.
+- **Personnel page**: owners and staff in one list. PIN changes need the current PIN; removing someone needs the signed-in owner's PIN, and keeps their name on past sales.
 - **Device** (a POS tablet): its own Supabase login, created by an owner through `/pos/pair`, with a device code. RLS lets it read the menu and write only through RPCs, and only as itself.
 - **Staff**: 4-digit PIN on the tablet. PINs are bcrypt hashes, checked on the tablet against cached hashes so unlocking works offline.
 - **Owner PIN on the tablet**: approvals work offline against the cached hashes. Five wrong owner PINs lock owner PIN entry on that tablet for 5 minutes.
@@ -123,7 +124,7 @@ Details, conflict handling and how to add a device: [docs/offline-architecture.m
 - **Revenue allocation:** the bundle price is split across components in proportion to their regular prices (largest-remainder method on integer centavos). The order discount is split the same way. Refunds use a cumulative-floor rule so partial refunds add up exactly.
 
 ### Data model (main tables)
-- **Setup:** `businesses`, `memberships`, `staff`, `owner_invites`, `pos_devices`
+- **Setup:** `businesses`, `memberships` (owner/device, co-owner flag and PIN lockout), `staff`, `pos_devices`
 - **Catalog:** `products`, `bundles`, `bundle_items`
 - **Events:** `events`, `event_products`, `event_bundles`
 - **Sales:** `transactions` (with `client_order_id`, `order_number`, `device_id`, `shift_id`, `payment_status`) → `transaction_lines` → `transaction_line_components`

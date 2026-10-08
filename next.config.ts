@@ -3,6 +3,12 @@ import { withSerwist } from "@serwist/turbopack";
 
 const nextConfig: NextConfig = {
   images: { unoptimized: true },
+  async redirects() {
+    return [
+      { source: "/admin/staff", destination: "/admin/personnel?show=staff", permanent: false },
+      { source: "/admin/owners", destination: "/admin/personnel?show=owner", permanent: false },
+    ];
+  },
   async headers() {
     return [
       {
