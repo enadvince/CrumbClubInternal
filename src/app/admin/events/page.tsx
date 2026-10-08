@@ -98,7 +98,7 @@ function NewEventModal({ open, events, onClose }: { open: boolean; events: Event
       <form onSubmit={submit} className="space-y-4">
         {error && <Notice tone="danger">{error}</Notice>}
         <Field label="Event name" htmlFor="e-name">
-          <input id="e-name" required className="input" placeholder="e.g. Salcedo Market — Oct 18" value={name} onChange={(e) => setName(e.target.value)} />
+          <input id="e-name" required className="input" placeholder="e.g. Salcedo Market, Oct 18" value={name} onChange={(e) => setName(e.target.value)} />
         </Field>
         <Field label="Venue" htmlFor="e-venue">
           <input id="e-venue" className="input" value={venue} onChange={(e) => setVenue(e.target.value)} />

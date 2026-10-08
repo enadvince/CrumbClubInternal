@@ -124,6 +124,7 @@ export function ShiftDrawerPanel({
   const [countedTotal, setCountedTotal] = useState<Centavos | null>(null);
   const [note, setNote] = useState("");
   const [confirmClose, setConfirmClose] = useState<{ approverId: string | null; approverName: string | null } | null>(null);
+  const [confirmCashOut, setConfirmCashOut] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const counted = countMode === "denoms" ? denominationTotal(denoms) : countedTotal;
@@ -206,7 +207,7 @@ export function ShiftDrawerPanel({
               {step === "cash_out" && <p className="text-sm text-ink-soft">Cash out needs an owner PIN.</p>}
               <div className="flex gap-2">
                 <button className="btn-secondary" onClick={reset}>Cancel</button>
-                <button className="btn-primary" disabled={!amount || !reason.trim()} onClick={() => (step === "cash_in" ? move("cash_in") : setStep("cash_out_pin"))}>
+                <button className="btn-primary" disabled={!amount || !reason.trim()} onClick={() => (step === "cash_in" ? move("cash_in") : setConfirmCashOut(true))}>
                   {step === "cash_in" ? "Record cash in" : "Continue: owner PIN"}
                 </button>
               </div>
@@ -277,6 +278,10 @@ export function ShiftDrawerPanel({
             <OwnerPinGate staff={staff} eventId={eventId} title="Owner PIN to close" subtitle={`Variance ${formatPeso(variance ?? 0, { sign: true })}: ${note}`}
               onApproved={(o) => setConfirmClose({ approverId: o.id, approverName: o.name })} onCancel={() => setStep("review")} />
           )}
+          <ConfirmModal open={confirmCashOut} title="Cash out?" confirmLabel="Continue: owner PIN" onClose={() => setConfirmCashOut(false)}
+            onConfirm={() => { setConfirmCashOut(false); setStep("cash_out_pin"); }}>
+            <p>Take {formatPeso(amount ?? 0)} out of the drawer for: {reason}? It lowers the cash expected at close.</p>
+          </ConfirmModal>
           <ConfirmModal open={!!confirmClose} title="Close shift?" confirmLabel="Close shift" onClose={() => setConfirmClose(null)}
             onConfirm={() => doClose(confirmClose!.approverId, confirmClose!.approverName)}>
             <p>Counted {counted != null ? formatPeso(counted) : "-"}. After closing, a new shift must be opened before the next sale.</p>

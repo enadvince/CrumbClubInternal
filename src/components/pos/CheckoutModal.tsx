@@ -118,7 +118,7 @@ export function CheckoutModal({
             <div className="space-y-3">
               <div className="rounded-xl bg-cream p-3">
                 <p className="text-sm text-ink-soft">Cash received</p>
-                <p className="text-3xl font-black tabular-nums" aria-live="polite">{received == null ? "—" : formatPeso(received)}</p>
+                <p className="text-3xl font-black tabular-nums" aria-live="polite">{received == null ? "-" : formatPeso(received)}</p>
               </div>
               <div className="grid grid-cols-3 gap-2">
                 <button className="btn-secondary h-14 text-lg" onClick={() => quick("exact")}>Exact</button>
@@ -127,8 +127,8 @@ export function CheckoutModal({
                 ))}
               </div>
               <div className={`rounded-xl p-3 ${change == null ? "bg-cream" : change < 0 ? "bg-danger-light text-danger" : "bg-ok-light text-ok"}`} aria-live="polite">
-                <p className="text-sm font-semibold">{change != null && change < 0 ? "⚠ Not enough cash — short by" : "Change due"}</p>
-                <p className="text-4xl font-black tabular-nums">{change == null ? "—" : formatPeso(Math.abs(change))}</p>
+                <p className="text-sm font-semibold">{change != null && change < 0 ? "⚠ Not enough cash. Short by" : "Change due"}</p>
+                <p className="text-4xl font-black tabular-nums">{change == null ? "-" : formatPeso(Math.abs(change))}</p>
               </div>
             </div>
             <div className="grid grid-cols-3 gap-2">

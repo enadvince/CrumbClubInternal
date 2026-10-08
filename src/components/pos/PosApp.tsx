@@ -19,11 +19,12 @@ import {
 } from "@/lib/pos/cart";
 import { applySuggestion, suggestBundle } from "@/lib/pos/suggest";
 import type { CartLine, Discount, MenuBundle, MenuProduct, PaymentDetails, SnapshotStaff } from "@/lib/pos/types";
-import { ConfirmModal } from "@/components/ConfirmModal";
+import { ConfirmModal, useConfirm } from "@/components/ConfirmModal";
 import { formatPeso } from "@/lib/money";
 import { errorMessage } from "@/lib/errors";
 import { enterOwnerView, restoreDeviceSession } from "@/lib/ownerView";
-import { formatDateRange, timeAgo } from "@/lib/time";
+import { formatDateRange, formatTime, timeAgo } from "@/lib/time";
+import { ThemeToggle } from "@/components/ThemeToggle";
 import { Logo, Spinner } from "@/components/ui";
 import { Modal } from "@/components/Modal";
 import { PinPad } from "./PinPad";
@@ -73,6 +74,8 @@ export function PosApp() {
   const [showShift, setShowShift] = useState(false);
   const [showSync, setShowSync] = useState(false);
   const [showOrders, setShowOrders] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [search, setSearch] = useState("");
   const [showDrawer, setShowDrawer] = useState(false);
   const [reportShiftId, setReportShiftId] = useState<string | null>(null);
   const [ownerGate, setOwnerGate] = useState(false);
@@ -83,6 +86,7 @@ export function PosApp() {
   const [lastSale, setLastSale] = useState<LastSale | null>(null);
   const [confirmation, setConfirmation] = useState<LastSale | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [ask, confirmEl] = useConfirm();
   // "Out of stock on record. Add anyway?" before going below zero.
   const [stockConfirm, setStockConfirm] = useState<{ short: MenuProduct[]; apply: () => void } | null>(null);
 
@@ -320,7 +324,7 @@ export function PosApp() {
 
   // ---- Screens
   if (boot === "loading" || cached === undefined || activeStaff === undefined || device === undefined) {
-    return <main className="flex min-h-dvh items-center justify-center"><Spinner label="Starting POS" /></main>;
+    return <main id="main" className="flex min-h-dvh items-center justify-center"><Spinner label="Starting POS" /></main>;
   }
   if (boot === "unconfigured") {
     return <Centered><p>Supabase isn&apos;t configured. See the README.</p></Centered>;
@@ -361,30 +365,47 @@ export function PosApp() {
     );
   }
 
-  const header = (
-    <header className="pos-header flex flex-wrap items-center gap-3 border-b-2 border-crust-dark bg-paper px-4 py-2">
-      <Logo className="text-lg text-caramel" />
-      <div className="min-w-0 flex-1">
-        <p className="truncate font-bold">{event ? event.name : "No live event"}</p>
-        {event && <p className="truncate text-xs text-ink-soft">{formatDateRange(event.starts_on, event.ends_on)}{event.venue ? ` · ${event.venue}` : ""}</p>}
-      </div>
-      <SyncPill state={syncState} summary={summary} onClick={() => setShowSync(true)} />
-      {currentStaff && (
-        <>
-          <button className="btn-secondary min-h-11 text-sm" onClick={() => setShowOrders(true)}>🧾 Orders</button>
-          {shift && <button className="btn-secondary min-h-11 text-sm" onClick={() => setShowDrawer(true)}>💵 Shift</button>}
-          <button className="btn-secondary min-h-11 text-sm" onClick={() => setShowShift(true)}>My sales</button>
-          <button className="btn-secondary min-h-11 text-sm" onClick={lock} aria-label={`Signed in as ${currentStaff.name}. Switch staff.`}>
-            👤 {currentStaff.name} · Switch
-          </button>
-        </>
-      )}
-      {!isPosDemo() && (
-        <button className="btn-ghost min-h-11 text-sm" onClick={showOwnerViewGate}>
-          📊 Owner view
+  const actions: { key: string; node: React.ReactNode }[] = [
+    ...(currentStaff ? [
+      { key: "orders", node: <button className="btn-secondary min-h-11 text-sm" onClick={() => { setMenuOpen(false); setShowOrders(true); }}>🧾 Orders</button> },
+      ...(shift ? [{ key: "shift", node: <button className="btn-secondary min-h-11 text-sm" onClick={() => { setMenuOpen(false); setShowDrawer(true); }}>💵 Shift</button> }] : []),
+      { key: "mine", node: <button className="btn-secondary min-h-11 text-sm" onClick={() => { setMenuOpen(false); setShowShift(true); }}>My sales</button> },
+      { key: "switch", node: (
+        <button className="btn-secondary min-h-11 text-sm" onClick={() => { setMenuOpen(false); void lock(); }} aria-label={`Signed in as ${currentStaff.name}. Switch staff.`}>
+          👤 {currentStaff.name} · Switch
         </button>
+      ) },
+    ] : []),
+    ...(!isPosDemo() ? [{ key: "ownerview", node: <button className="btn-ghost min-h-11 text-sm" onClick={() => { setMenuOpen(false); showOwnerViewGate(); }}>📊 Owner view</button> }] : []),
+    { key: "owner", node: <button className="btn-ghost min-h-11 text-sm" onClick={() => { setMenuOpen(false); openOwnerMenu(); }}>⚙ Owner</button> },
+    { key: "help", node: <Link className="btn-ghost min-h-11 text-sm" href="/help">❓ Help</Link> },
+    { key: "theme", node: <ThemeToggle /> },
+  ];
+
+  const header = (
+    <header className="pos-header sticky top-0 z-20 border-b-2 border-crust-dark bg-paper px-3 py-2">
+      <div className="flex flex-wrap items-center gap-2">
+        <Logo className="text-lg text-caramel" />
+        <div className="min-w-0 flex-1 basis-40">
+          <p className="truncate font-bold">{event ? event.name : "No live event"}</p>
+          <p className="truncate text-xs text-ink-soft">
+            {event ? `${formatDateRange(event.starts_on, event.ends_on)}${event.venue ? ` · ${event.venue}` : ""} · ` : ""}
+            {device?.value?.deviceCode ? `Tablet ${device.value.deviceCode}` : ""}
+          </p>
+        </div>
+        <SyncPill state={syncState} summary={summary} onClick={() => setShowSync(true)} />
+        <div className="hidden flex-wrap items-center gap-2 lg:flex">
+          {actions.map((a) => <span key={a.key} className="contents">{a.node}</span>)}
+        </div>
+        <button className="btn-secondary min-h-11 text-sm lg:hidden" aria-expanded={menuOpen} aria-controls="pos-menu" onClick={() => setMenuOpen((o) => !o)}>
+          {menuOpen ? "✕ Close" : "☰ Menu"}
+        </button>
+      </div>
+      {menuOpen && (
+        <nav id="pos-menu" aria-label="POS menu" className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:hidden">
+          {actions.map((a) => <span key={a.key} className="contents">{a.node}</span>)}
+        </nav>
       )}
-      <button className="btn-ghost min-h-11 text-sm" onClick={openOwnerMenu}>⚙ Owner</button>
     </header>
   );
 
@@ -441,7 +462,7 @@ export function PosApp() {
 
   if (!currentStaff) {
     return (
-      <main className="flex min-h-dvh flex-col">
+      <main id="main" className="flex min-h-dvh flex-col">
         {header}
         <UnsyncedBanner summary={summary} now={now} onOpen={() => setShowSync(true)} />
         <div className="flex flex-1 items-center justify-center p-4">
@@ -454,7 +475,7 @@ export function PosApp() {
 
   if (!sellable || !menu) {
     return (
-      <main className="flex min-h-dvh flex-col">
+      <main id="main" className="flex min-h-dvh flex-col">
         {header}
         <UnsyncedBanner summary={summary} now={now} onOpen={() => setShowSync(true)} />
         <Centered>
@@ -480,11 +501,11 @@ export function PosApp() {
   }
 
   if (openShift === undefined) {
-    return <main className="flex min-h-dvh items-center justify-center"><Spinner label="Loading shift" /></main>;
+    return <main id="main" className="flex min-h-dvh items-center justify-center"><Spinner label="Loading shift" /></main>;
   }
   if (!shift) {
     return (
-      <main className="flex min-h-dvh flex-col">
+      <main id="main" className="flex min-h-dvh flex-col">
         {header}
         <UnsyncedBanner summary={summary} now={now} onOpen={() => setShowSync(true)} />
         <OpenShiftScreen eventId={menu.eventId} staff={currentStaff} onOpened={() => setNotice("Shift opened. Ready to sell.")} />
@@ -493,17 +514,22 @@ export function PosApp() {
     );
   }
 
+  const query = search.trim().toLowerCase();
+  const searching = query.length > 0;
+  const matchesSearch = (name: string) => name.toLowerCase().includes(query);
+  const noResults = searching && !products.some((p) => matchesSearch(p.name)) && !bundles.some((b) => matchesSearch(b.name));
+
   const undoLeft = lastSale ? Math.max(0, Math.ceil((lastSale.createdAt + UNDO_WINDOW_MS - now) / 1000)) : 0;
 
   return (
-    <main className="flex h-dvh flex-col overflow-hidden">
+    <main id="main" className="flex min-h-dvh flex-col lg:h-dvh lg:overflow-hidden">
       {header}
-      {isPosDemo() && <p className="bg-ink px-4 py-1 text-center text-xs font-bold text-white">DEMO MODE — sales go to a fake in-browser server, not Supabase</p>}
+      {isPosDemo() && <p className="bg-ink px-4 py-1 text-center text-xs font-bold text-paper">DEMO MODE: sales go to a fake in-browser server, not Supabase</p>}
       <UnsyncedBanner summary={summary} now={now} onOpen={() => setShowSync(true)} />
       {notice && (
         <div role="status" className="flex items-center gap-3 bg-ube-light px-4 py-2 font-semibold text-ube">
           <span className="flex-1">{notice}</span>
-          <button className="btn-ghost min-h-10 text-sm" onClick={() => setNotice(null)} aria-label="Dismiss">✕</button>
+          <button className="btn-ghost min-h-11 min-w-11 text-sm" onClick={() => setNotice(null)} aria-label="Dismiss">✕</button>
         </div>
       )}
       <div className="grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-[1fr_minmax(340px,400px)]">
@@ -511,20 +537,30 @@ export function PosApp() {
           <div className="flex gap-2 p-3" role="tablist" aria-label="Menu sections">
             {([["bundles", `📦 Bundles (${bundles.length})`], ["pastries", `🥐 Individual Items (${products.length})`]] as const).map(([t, label]) => (
               <button key={t} role="tab" aria-selected={tab === t} onClick={() => chooseTab(t)}
-                className={`btn h-14 flex-1 border-2 text-lg ${tab === t ? (t === "bundles" ? "border-ube bg-ube text-white" : "border-caramel bg-caramel text-white") : "border-crust-dark bg-paper text-ink"}`}>
+                className={`btn h-14 flex-1 border-2 text-lg ${tab === t ? (t === "bundles" ? "border-ube bg-ube text-white hover:brightness-110" : "border-caramel bg-caramel text-white hover:bg-caramel-dark") : "border-crust-dark bg-paper text-ink hover:bg-crust active:bg-crust-dark"}`}>
                 {label}
               </button>
             ))}
           </div>
-          {tab === "pastries" && subcategories.length > 1 && (
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 pb-2">
+            <label className="sr-only" htmlFor="product-search">Search products</label>
+            <input
+              id="product-search" type="search" className="input min-h-11 min-w-0 flex-1 basis-56" placeholder="🔎 Search products and bundles"
+              value={search} onChange={(e) => setSearch(e.target.value)} autoComplete="off"
+            />
+            <p className="text-xs text-ink-soft" data-testid="menu-synced">
+              Menu last synced {cached?.value?.pulledAt ? formatTime(cached.value.pulledAt) : "never"}
+            </p>
+          </div>
+          {tab === "pastries" && subcategories.length > 1 && !search && (
             <FilterChips label="Subcategory" options={subcategories.map((c) => [c, c] as const)} value={subcategory} onChange={setSubcategory} />
           )}
-          {tab === "bundles" && bundleTypes.length > 1 && (
+          {tab === "bundles" && bundleTypes.length > 1 && !search && (
             <FilterChips label="Bundle type" options={bundleTypes.map((t) => [t, BUNDLE_TYPE_LABEL[t]] as const)} value={bundleType} onChange={setBundleType} />
           )}
-          <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-3" role="tabpanel">
+          <div className="px-3 pb-3 lg:min-h-0 lg:flex-1 lg:overflow-y-auto" role="tabpanel">
             <div className="grid grid-cols-[repeat(auto-fill,minmax(150px,1fr))] gap-3">
-              {tab === "pastries" && products.filter((p) => !subcategory || p.category === subcategory).map((p) => {
+              {(tab === "pastries" || searching) && products.filter((p) => (searching ? matchesSearch(p.name) : !subcategory || p.category === subcategory)).map((p) => {
                 const state = productState(menu, p.event_product_id, remaining);
                 return (
                   <ItemCard
@@ -539,7 +575,7 @@ export function PosApp() {
                   />
                 );
               })}
-              {tab === "bundles" && bundles.filter((b) => !bundleType || b.type === bundleType).map((b) => {
+              {(tab === "bundles" || searching) && bundles.filter((b) => (searching ? matchesSearch(b.name) : !bundleType || b.type === bundleType)).map((b) => {
                 const state = bundleState(menu, b.event_bundle_id, remaining);
                 const detail = b.type === "fixed"
                   ? b.items.map((i) => `${i.quantity}× ${menu.products.get(i.event_product_id ?? "")?.name ?? "?"}`).join(", ")
@@ -560,22 +596,31 @@ export function PosApp() {
                 );
               })}
             </div>
-            {tab === "bundles" && bundles.length === 0 && <p className="p-6 text-center text-ink-soft">No bundles at this event.</p>}
+            {tab === "bundles" && bundles.length === 0 && !searching && <p className="p-6 text-center text-ink-soft">No bundles at this event.</p>}
+            {noResults && <p className="p-6 text-center text-ink-soft">Nothing matches &ldquo;{search}&rdquo;.</p>}
           </div>
         </section>
-        <div className="min-h-0 max-lg:max-h-[55dvh]">
+        <div className="min-h-0 max-lg:border-t-2 max-lg:border-crust-dark">
           <CartPanel
             priced={priced}
             menu={menu}
             discount={discount}
             suggestion={suggestion}
             canIncrement={(id) => canIncrement(menu, cart, id)}
-            onChange={(id, d) => {
+            onChange={async (id, d) => {
               const apply = () => setCart((c) => changeQuantity(c, id, d));
-              if (d > 0) addChecked(null, apply, incrementWouldOversell(menu, cart, id));
-              else apply();
+              if (d > 0) return addChecked(null, apply, incrementWouldOversell(menu, cart, id));
+              const line = priced.lines.find((l) => l.line.id === id);
+              // Removing the last one deletes the line: ask first.
+              if (line && line.line.quantity + d <= 0 && !(await ask({ title: "Remove item?", body: `Remove ${line.name} from the cart?`, confirmLabel: "Remove" }))) return;
+              apply();
             }}
-            onClear={() => { setCart([]); setDiscount(null); }}
+            onClear={async () => {
+              if (await ask({ title: "Clear cart?", body: "Remove every item and discount from this order?", confirmLabel: "Clear cart" })) {
+                setCart([]);
+                setDiscount(null);
+              }
+            }}
             onApplySuggestion={() => suggestion && setCart((c) => applySuggestion(c, suggestion, newId))}
             onDiscount={() => setDiscounting(true)}
             onRemoveDiscount={() => setDiscount(null)}
@@ -586,9 +631,9 @@ export function PosApp() {
       </div>
 
       {lastSale && undoLeft > 0 && (
-        <div className="fixed bottom-4 left-4 z-10 flex items-center gap-3 rounded-2xl bg-ink px-4 py-3 text-white shadow-xl" role="status">
+        <div className="fixed bottom-4 left-4 z-10 flex items-center gap-3 rounded-2xl bg-ink px-4 py-3 text-paper shadow-xl" role="status">
           <span>✓ Last sale {formatPeso(lastSale.total)}</span>
-          <button className="btn min-h-11 bg-white text-ink" onClick={() => setVoidGate(true)}>Undo ({undoLeft}s)</button>
+          <button className="btn min-h-11 bg-paper text-ink hover:bg-crust active:bg-crust-dark" onClick={() => setVoidGate(true)}>Undo ({undoLeft}s)</button>
         </div>
       )}
 
@@ -629,6 +674,7 @@ export function PosApp() {
           addChecked({ id: "probe", kind: "bundle", eventBundleId: bundleId, quantity: 1, picks }, () => setCart((c) => addBundle(c, bundleId, newId, picks)));
         }}
       />
+      {confirmEl}
       <ConfirmModal
         open={!!stockConfirm}
         title="Out of stock on record"
@@ -682,7 +728,7 @@ function FilterChips<T extends string>({ label, options, value, onChange }: {
     <div className="flex gap-2 overflow-x-auto px-3 pb-2" role="radiogroup" aria-label={label}>
       {all.map(([v, text]) => (
         <button key={v ?? "__all"} role="radio" aria-checked={value === v} onClick={() => onChange(v)}
-          className={`btn min-h-11 shrink-0 border-2 px-4 text-sm ${value === v ? "border-ink bg-ink text-white" : "border-crust-dark bg-paper text-ink"}`}>
+          className={`btn min-h-11 shrink-0 border-2 px-4 text-sm ${value === v ? "border-ink bg-ink text-paper hover:bg-ink-soft" : "border-crust-dark bg-paper text-ink hover:bg-crust active:bg-crust-dark"}`}>
           {text}
         </button>
       ))}

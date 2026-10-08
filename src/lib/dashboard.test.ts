@@ -53,7 +53,7 @@ const base: DashboardReport = {
 describe("insights", () => {
   it("produces the example insights from the spec", () => {
     const lines = insights(base);
-    expect(lines[0]).toBe("Ube croissant sold out at 11:40 AM, 2h 40m after the first sale — consider bringing more.");
+    expect(lines[0]).toBe("Ube croissant sold out at 11:40 AM, 2h 40m after the first sale. Consider bringing more.");
     expect(lines).toContain("Box of 6 earns ₱11.67 less margin per piece than single sales (2 sold).");
     expect(lines.some((l) => l.startsWith("Busiest hour: 10am–11am"))).toBe(true);
   });

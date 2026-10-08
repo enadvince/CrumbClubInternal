@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { getSupabase } from "@/lib/supabase/client";
 import { CopyButton } from "@/components/CopyButton";
+import { BackToTop, ScrollProgress } from "@/components/ScrollAids";
 import { SecretInput } from "@/components/SecretInput";
 import { VOID_REASONS } from "@/lib/pos/reasons";
 import { EmptyState, Field, Notice, PageHeader, Spinner } from "@/components/ui";
@@ -70,6 +71,8 @@ export default function TransactionsPage() {
 
   return (
     <>
+      <ScrollProgress />
+      <BackToTop />
       <PageHeader
         title="Transactions"
         subtitle="Every sale, including voids. Nothing is ever deleted."
@@ -209,7 +212,7 @@ function PaymentVerification({ txn }: { txn: TxnRow }) {
 function StatusCell({ t }: { t: TxnRow }) {
   return (
     <div className="flex flex-wrap gap-1">
-      {t.status === "voided" ? <span className="badge bg-ink text-white">✕ Voided</span> : <span className="badge bg-ok-light text-ok">✓ Completed</span>}
+      {t.status === "voided" ? <span className="badge bg-ink text-paper">✕ Voided</span> : <span className="badge bg-ok-light text-ok">✓ Completed</span>}
       {t.flags.map((f) => <span key={f} className="badge bg-warn-light text-warn">⚠ {FLAG_LABEL[f] ?? f}</span>)}
     </div>
   );
@@ -249,7 +252,7 @@ function TransactionDetail({ txn, onClose, onVoided }: { txn: TxnRow | null; onC
           {error && <Notice tone="danger">{error}</Notice>}
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div className="text-sm">
-              <p className="font-mono text-lg font-bold">{txn.order_number}</p>
+              <p className="flex items-center gap-2 font-mono text-lg font-bold">{txn.order_number}<CopyButton value={txn.order_number} /></p>
               <p><strong>{formatDateTime(txn.client_created_at)}</strong> · {txn.events?.name}</p>
               <p>Rung up by <strong>{txn.staff?.name}</strong></p>
               <p className="text-ink-soft">Synced {formatDateTime(txn.synced_at)} · ID {txn.id.slice(0, 8)}</p>
@@ -286,7 +289,7 @@ function TransactionDetail({ txn, onClose, onVoided }: { txn: TxnRow | null; onC
           <dl className="grid grid-cols-2 gap-x-6 gap-y-1 text-sm sm:max-w-md">
             <dt>Subtotal</dt><dd className="text-right tabular-nums">{formatPeso(txn.subtotal_centavos)}</dd>
             {txn.discount_centavos > 0 && (<>
-              <dt>Discount{txn.discount_type === "percent" ? ` (${(txn.discount_value ?? 0) / 100}%)` : ""} — {txn.discount_reason}</dt>
+              <dt>Discount{txn.discount_type === "percent" ? ` (${(txn.discount_value ?? 0) / 100}%)` : ""}: {txn.discount_reason}</dt>
               <dd className="text-right tabular-nums">−{formatPeso(txn.discount_centavos)}</dd>
             </>)}
             <dt className="font-bold">Total</dt><dd className="text-right font-bold tabular-nums">{formatPeso(txn.total_centavos)}</dd>

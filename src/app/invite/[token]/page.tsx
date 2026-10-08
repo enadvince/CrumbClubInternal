@@ -1,5 +1,7 @@
 "use client";
 import { useEffect, useState, type FormEvent } from "react";
+import { SecretInput } from "@/components/SecretInput";
+import { ContactButton } from "@/components/ContactButton";
 import { useParams, useRouter } from "next/navigation";
 import { getSupabase } from "@/lib/supabase/client";
 import { Field, Logo, Notice, Spinner } from "@/components/ui";
@@ -77,7 +79,7 @@ export default function AcceptInvitePage() {
   }
 
   return (
-    <main className="flex min-h-dvh flex-col items-center justify-center gap-6 p-4">
+    <main id="main" className="flex min-h-dvh flex-col items-center justify-center gap-6 p-4">
       <Logo className="text-3xl text-caramel" />
       {invite === undefined ? <Spinner /> : !invite ? (
         <div className="card w-full max-w-md space-y-4 p-6">
@@ -105,7 +107,7 @@ export default function AcceptInvitePage() {
             <input id="email" type="email" readOnly className="input bg-crust" value={invite.email} />
           </Field>
           <Field label={invite.account_exists ? "Password" : "Choose a password"} htmlFor="password" hint={invite.account_exists ? undefined : "At least 8 characters."}>
-            <input id="password" type="password" required minLength={8} className="input"
+            <SecretInput id="password" required minLength={8}
               autoComplete={invite.account_exists ? "current-password" : "new-password"}
               value={password} onChange={(e) => setPassword(e.target.value)} />
           </Field>
@@ -113,14 +115,15 @@ export default function AcceptInvitePage() {
             <input id="owner-name" required className="input" value={name} onChange={(e) => setName(e.target.value)} />
           </Field>
           <Field label="Your 4-digit PIN" htmlFor="pin" hint="Unlocks the owner menu on the POS tablet and lets you ring up sales.">
-            <input id="pin" required type="password" inputMode="numeric" autoComplete="off" pattern="\d{4}" maxLength={4}
-              className="input tracking-[0.5em]" value={pin} onChange={(e) => setPin(e.target.value.replace(/\D/g, "").slice(0, 4))} />
+            <SecretInput id="pin" required inputMode="numeric" autoComplete="off" pattern="\d{4}" maxLength={4}
+              className="tracking-[0.5em]" value={pin} onChange={(e) => setPin(e.target.value.replace(/\D/g, "").slice(0, 4))} />
           </Field>
           <button className="btn-primary w-full" disabled={busy}>
             {busy ? "Please wait…" : invite.account_exists ? "Sign in and join" : "Create account and join"}
           </button>
         </form>
       )}
+      <ContactButton page="invite" />
     </main>
   );
 }

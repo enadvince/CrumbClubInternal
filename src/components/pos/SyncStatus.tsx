@@ -48,7 +48,7 @@ export function UnsyncedBanner({ summary, now, onOpen }: { summary: UnsyncedSumm
         {summary.unsyncedSales} order{summary.unsyncedSales === 1 ? " has" : "s have"} not synced since {timeAgo(summary.oldestUnsyncedAt, now)}.
         Connect the tablet to Wi-Fi or a phone hotspot. If that&apos;s not possible, an owner should download an emergency export.
       </span>
-      <button className="btn min-h-11 bg-white text-danger hover:bg-danger-light active:bg-danger-light" onClick={onOpen}>Sync panel</button>
+      <button className="btn min-h-11 bg-white font-bold text-[#a3221b] hover:bg-[#fde6e4] active:bg-[#f9cfcb]" onClick={onOpen}>Sync panel</button>
     </div>
   );
 }
@@ -163,7 +163,7 @@ export function ConnectionToast({ online, summary }: { online: boolean; summary:
   }, [online]);
   if (!message) return null;
   return (
-    <div role="status" aria-live="polite" className={`no-print fixed top-20 left-1/2 z-30 flex max-w-[calc(100%-2rem)] -translate-x-1/2 items-center gap-3 rounded-2xl px-4 py-3 font-semibold text-white shadow-xl ${online ? "bg-ok" : "bg-mute"}`}>
+    <div role="status" aria-live="polite" className={`no-print fixed top-20 left-1/2 z-30 flex max-w-[calc(100%-2rem)] -translate-x-1/2 items-center gap-3 rounded-2xl px-4 py-3 font-semibold shadow-xl ${online ? "bg-ok text-white" : "bg-ink text-paper"}`}>
       <span aria-hidden>{online ? "●" : "○"}</span>
       <span className="flex-1">{message}</span>
       <button className="min-h-11 min-w-11 rounded-lg hover:bg-white/15 active:bg-white/25" onClick={() => setMessage(null)} aria-label="Dismiss">✕</button>

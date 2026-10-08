@@ -1,4 +1,6 @@
 import type { Metadata } from "next";
+import { ContactButton } from "@/components/ContactButton";
+import { ScrollProgress } from "@/components/ScrollAids";
 import Link from "next/link";
 import { Logo } from "@/components/ui";
 import { formatDate } from "@/lib/time";
@@ -84,6 +86,7 @@ const FAQ: { q: string; a: React.ReactNode }[] = [
 export default function HelpPage() {
   return (
     <main id="main" className="mx-auto max-w-3xl space-y-6 px-4 py-8">
+      <ScrollProgress />
       <header className="space-y-2">
         <Logo className="text-2xl text-caramel" />
         <h1 className="text-3xl font-bold">Help</h1>
@@ -105,6 +108,7 @@ export default function HelpPage() {
       <div className="flex flex-wrap gap-2">
         <Link href="/pos" className="btn-primary">Back to the POS</Link>
       </div>
+      <ContactButton page="help" />
     </main>
   );
 }

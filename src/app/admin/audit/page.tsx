@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from "react";
 import { getSupabase } from "@/lib/supabase/client";
 import { EmptyState, Field, Notice, PageHeader, Spinner } from "@/components/ui";
 import { CopyButton } from "@/components/CopyButton";
+import { BackToTop, ScrollProgress } from "@/components/ScrollAids";
 import { errorMessage } from "@/lib/errors";
 import { formatPeso } from "@/lib/money";
 import { formatDateTime } from "@/lib/time";
@@ -37,6 +38,8 @@ export default function AuditPage() {
 
   return (
     <>
+      <ScrollProgress />
+      <BackToTop />
       <PageHeader title="Audit log" subtitle="Voids, refunds, cash movements and owner PIN approvals, from every tablet. Entries can't be edited or deleted." />
       <div className="mb-4 grid gap-3 sm:grid-cols-3">
         <Field label="Action" htmlFor="a-action">

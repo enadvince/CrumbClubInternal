@@ -66,7 +66,7 @@ export default function ProductsPage() {
                       <div className="text-right">
                         <p className="font-bold tabular-nums">{formatPeso(p.default_price_centavos)}</p>
                         <p className={`text-sm tabular-nums ${m != null && m < 30 ? "text-danger" : "text-ok"}`}>
-                          {formatPeso(p.default_price_centavos - p.cost_centavos)} · {m == null ? "—" : `${m.toFixed(0)}%`} margin
+                          {formatPeso(p.default_price_centavos - p.cost_centavos)} · {m == null ? "-" : `${m.toFixed(0)}%`} margin
                         </p>
                       </div>
                     </button>
@@ -160,7 +160,7 @@ function ProductEditor({ product, categories, onClose, onSaved }: {
         <div aria-live="polite" className={`rounded-xl p-3 ${margin != null && margin < 0 ? "bg-danger-light text-danger" : "bg-cream"}`}>
           <p className="text-sm text-ink-soft">Unit margin</p>
           <p className="text-xl font-bold tabular-nums">
-            {margin == null ? "—" : formatPeso(margin)}
+            {margin == null ? "-" : formatPeso(margin)}
             <span className="ml-2 text-base font-semibold">{marginPct == null ? "" : `${marginPct.toFixed(1)}%`}</span>
           </p>
           {margin != null && margin < 0 && <p className="text-sm font-semibold">⚠ You lose money on each sale at this price.</p>}

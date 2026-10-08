@@ -1,5 +1,6 @@
 "use client";
 import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { SecretInput } from "@/components/SecretInput";
 import { getSupabase } from "@/lib/supabase/client";
 import { useOwner } from "../OwnerContext";
 import { Field, Notice, PageHeader, Spinner } from "@/components/ui";
@@ -129,7 +130,7 @@ function PinModal({ staff, onClose, onSaved }: { staff: Staff | null; onClose: (
   }
 
   const digits = (v: string) => v.replace(/\D/g, "").slice(0, 4);
-  const pinInput = "input text-center text-2xl tracking-[0.6em]";
+  const pinInput = "text-center text-2xl tracking-[0.6em]";
 
   return (
     <Modal open={!!staff} onClose={onClose} title={`${changing ? "Change PIN" : "PIN"} for ${staff?.name ?? ""}`}>
@@ -137,12 +138,12 @@ function PinModal({ staff, onClose, onSaved }: { staff: Staff | null; onClose: (
         {error && <Notice tone="danger">{error}</Notice>}
         {changing && (
           <Field label="Current PIN" htmlFor="current-pin">
-            <input id="current-pin" autoFocus required type="password" inputMode="numeric" autoComplete="off" pattern="\d{4}" maxLength={4}
+            <SecretInput id="current-pin" autoFocus required inputMode="numeric" autoComplete="off" pattern="\d{4}" maxLength={4}
               className={pinInput} value={current} onChange={(e) => setCurrent(digits(e.target.value))} />
           </Field>
         )}
         <Field label="New 4-digit PIN" htmlFor="new-pin">
-          <input id="new-pin" autoFocus={!changing} required type="password" inputMode="numeric" autoComplete="off" pattern="\d{4}" maxLength={4}
+          <SecretInput id="new-pin" autoFocus={!changing} required inputMode="numeric" autoComplete="off" pattern="\d{4}" maxLength={4}
             className={pinInput} value={pin} onChange={(e) => setPin(digits(e.target.value))} />
         </Field>
         <button className="btn-primary w-full" disabled={!ready || saving}>{saving ? "Saving…" : changing ? "Change PIN" : "Save PIN"}</button>

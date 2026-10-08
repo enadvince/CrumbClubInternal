@@ -58,7 +58,7 @@ export default function PairPage() {
   }
 
   return (
-    <main className="flex min-h-dvh flex-col items-center justify-center gap-6 p-4">
+    <main id="main" className="flex min-h-dvh flex-col items-center justify-center gap-6 p-4">
       <Logo className="text-3xl text-caramel" />
       <div className="card w-full max-w-md space-y-4 p-6">
         <h1 className="text-xl font-bold">Set up this tablet as the POS</h1>

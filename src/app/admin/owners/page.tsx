@@ -1,5 +1,6 @@
 "use client";
 import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { useConfirm } from "@/components/ConfirmModal";
 import { getSupabase } from "@/lib/supabase/client";
 import { useOwner } from "../OwnerContext";
 import { EmptyState, Field, Notice, PageHeader, Spinner } from "@/components/ui";
@@ -23,6 +24,7 @@ function inviteStatus(i: Invite): { label: string; className: string } {
 
 /** Everyone with access to the owner pages, and email invites for new owners. */
 export default function OwnersPage() {
+  const [ask, confirmEl] = useConfirm();
   const { businessId, userId } = useOwner();
   const [owners, setOwners] = useState<Owner[] | null>(null);
   const [invites, setInvites] = useState<Invite[]>([]);
@@ -45,7 +47,7 @@ export default function OwnersPage() {
   useEffect(() => { load(); }, [load]);
 
   async function revoke(i: Invite) {
-    if (!confirm(`Cancel the invite for ${i.email}? The link will stop working.`)) return;
+    if (!(await ask({ title: "Cancel invite?", body: `Cancel the invite for ${i.email}? The link will stop working.`, confirmLabel: "Cancel invite" }))) return;
     const { error } = await getSupabase().rpc("revoke_owner_invite", { p_invite_id: i.id });
     if (error) setError(errorMessage(error));
     load();
@@ -67,6 +69,7 @@ export default function OwnersPage() {
 
   return (
     <>
+      {confirmEl}
       <PageHeader
         title="Owners"
         subtitle="People who can sign in to the owner pages. Invite someone by email to give them access."

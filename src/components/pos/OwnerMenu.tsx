@@ -3,7 +3,8 @@ import { useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { Modal } from "@/components/Modal";
 import { ConfirmModal } from "@/components/ConfirmModal";
-import { getDb } from "@/lib/offline/db";
+import { getDb, KV, type DeviceInfo } from "@/lib/offline/db";
+import { CopyButton } from "@/components/CopyButton";
 import { adjustStockLocally, auditLocally, setAvailabilityLocally, type AdjustmentReason } from "@/lib/offline/actions";
 import { backupCsv, backupJson } from "@/lib/offline/backup";
 import type { SyncEngine, SyncState } from "@/lib/offline/sync";
@@ -121,6 +122,7 @@ export function OwnerMenu({
 
       {tab === "tablet" && (
         <div className="space-y-4">
+          <TabletCode />
           <p className="text-ink-soft">Unpairing signs this tablet out and clears its local data. You&apos;ll need an owner login to set it up again.</p>
           {hasUnsynced && (
             <p role="alert" className="rounded-xl bg-danger-light p-3 font-semibold text-danger">
@@ -145,6 +147,18 @@ export function OwnerMenu({
         </div>
       )}
     </Modal>
+  );
+}
+
+/** This tablet's device code (starts every order number), with a copy button. */
+function TabletCode() {
+  const device = useLiveQuery(() => getDb().getKv<DeviceInfo>(KV.device), []);
+  if (!device?.deviceCode) return <p className="text-ink-soft">This tablet has no device code yet.</p>;
+  return (
+    <p className="flex flex-wrap items-center gap-2">
+      This tablet is <strong className="font-mono text-lg">{device.deviceCode}</strong>{device.label ? ` (${device.label})` : ""}.
+      <CopyButton value={device.deviceCode} label="Copy code" />
+    </p>
   );
 }
 

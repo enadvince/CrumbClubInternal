@@ -1,5 +1,6 @@
 "use client";
 import { use, useCallback, useEffect, useMemo, useState } from "react";
+import { useConfirm } from "@/components/ConfirmModal";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { getSupabase } from "@/lib/supabase/client";
@@ -11,6 +12,7 @@ import { formatTime, timeAgo } from "@/lib/time";
 import { leftover, type EventReport } from "@/lib/eventReport";
 
 export default function ClosePage({ params }: { params: Promise<{ id: string }> }) {
+  const [ask, confirmEl] = useConfirm();
   const { id } = use(params);
   const router = useRouter();
   const [report, setReport] = useState<EventReport | null>(null);
@@ -72,7 +74,7 @@ export default function ClosePage({ params }: { params: Promise<{ id: string }> 
     const msg = deviceUnsynced > 0
       ? `The tablet reported ${deviceUnsynced} unsynced sale(s). Closing now locks sales; those will still upload and be flagged. Close anyway?`
       : "Close this event? Sales will be locked.";
-    if (!confirm(msg)) return;
+    if (!(await ask({ title: "Close event?", body: msg, confirmLabel: "Close event and lock sales" }))) return;
     setBusy(true);
     const { error } = await getSupabase().rpc("close_event", {
       p_event_id: id,
@@ -90,6 +92,7 @@ export default function ClosePage({ params }: { params: Promise<{ id: string }> 
 
   return (
     <>
+      {confirmEl}
       <p className="mb-2 text-sm"><Link href={`/admin/events/${id}`} className="font-semibold text-caramel underline">← {report.event.name}</Link></p>
       <PageHeader title="End of day" subtitle="Count the cash, tick off QR Ph payments, record waste, then close the event." />
       {error && <Notice tone="danger" className="mb-4">{error}</Notice>}
@@ -180,9 +183,9 @@ export default function ClosePage({ params }: { params: Promise<{ id: string }> 
                   <tr key={p.event_product_id}>
                     <td className="py-2 font-semibold">{p.name}{p.sold_out_at && <span className="ml-2 text-xs font-normal text-ink-soft">sold out {formatTime(p.sold_out_at)}</span>}</td>
                     <td className="py-2 text-right">{p.starting_stock}</td>
-                    <td className="py-2 text-right">{p.restocked || "—"}</td>
+                    <td className="py-2 text-right">{p.restocked || "-"}</td>
                     <td className="py-2 text-right">{p.sold}</td>
-                    <td className="py-2 text-right">{p.waste + p.staff_meal + p.giveaway - p.correction || "—"}</td>
+                    <td className="py-2 text-right">{p.waste + p.staff_meal + p.giveaway - p.correction || "-"}</td>
                     <td className="py-2 text-right font-bold">{left}</td>
                     <td className="py-1 text-right">
                       <input type="number" min={0} max={left} disabled={closed || left === 0} aria-label={`Waste for ${p.name}`}

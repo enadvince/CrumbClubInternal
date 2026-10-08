@@ -264,3 +264,22 @@ test("emergency export downloads unsynced orders", async ({ page, context }) => 
   expect(data.kind).toBe("crumbclub-pos-emergency-export");
   expect(data.unsynced.some((o) => o.type === "sale" && /T1-\d{6}-\d{4}/.test(o.display?.orderNumber ?? ""))).toBe(true);
 });
+
+test("dark mode is remembered on this device; product search filters the menu", async ({ page }) => {
+  await unlock(page);
+  await page.getByRole("button", { name: /^Theme: / }).click(); // light -> dark (or system -> light -> ...)
+  while ((await page.locator("html").getAttribute("data-theme")) !== "dark") await page.getByRole("button", { name: /^Theme: / }).click();
+  await page.reload();
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
+  await openShiftIfAsked(page);
+  await page.getByRole("searchbox", { name: "Search products" }).fill("tart");
+  await expect(page.getByRole("button", { name: /^Calamansi Tart/ })).toBeVisible();
+  await expect(page.getByRole("button", { name: /^Butter Croissant/ })).toHaveCount(0);
+  await expect(page.getByTestId("menu-synced")).toContainText("Menu last synced");
+});
+
+test("404 page links back to the POS", async ({ page }) => {
+  await page.goto("/no-such-page");
+  await expect(page.getByRole("heading", { name: "This page crumbled" })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Back to the POS" })).toHaveAttribute("href", "/pos");
+});

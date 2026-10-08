@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { getSupabase } from "@/lib/supabase/client";
 import { Logo } from "@/components/ui";
+import { ThemeToggle } from "@/components/ThemeToggle";
 import { isTabletOwnerView, OWNER_VIEW_IDLE_MS, restoreDeviceSession } from "@/lib/ownerView";
 
 const links = [
@@ -25,6 +26,9 @@ export function AdminNav({ businessName, email }: { businessName: string; email:
   const router = useRouter();
   // Owner view opened from the POS tablet with an owner PIN.
   const [onTablet, setOnTablet] = useState(false);
+  // Narrow screens: links fold into a menu.
+  const [open, setOpen] = useState(false);
+  useEffect(() => setOpen(false), [pathname]);
 
   useEffect(() => {
     isTabletOwnerView().then(setOnTablet).catch(() => {});
@@ -56,14 +60,18 @@ export function AdminNav({ businessName, email }: { businessName: string; email:
   }
 
   return (
-    <nav aria-label="Owner" className="no-print border-b border-crust-dark bg-paper lg:sticky lg:top-0 lg:h-dvh lg:w-60 lg:shrink-0 lg:border-r lg:border-b-0">
-      <div className="flex items-center justify-between px-4 py-3 lg:block lg:py-5">
+    <nav aria-label="Owner" className="no-print sticky top-0 z-20 border-b border-crust-dark bg-paper lg:h-dvh lg:w-60 lg:shrink-0 lg:overflow-y-auto lg:border-r lg:border-b-0">
+      <div className="flex items-center justify-between gap-2 px-4 py-3 lg:block lg:py-5">
         <div>
           <Logo className="text-xl text-caramel" />
           <p className="text-xs text-ink-soft">{businessName}</p>
         </div>
+        <button className="btn-secondary min-h-11 text-sm lg:hidden" aria-expanded={open} aria-controls="owner-links" onClick={() => setOpen((o) => !o)}>
+          {open ? "✕ Close" : "☰ Menu"}
+        </button>
       </div>
-      <ul className="flex gap-1 overflow-x-auto px-2 pb-2 lg:flex-col lg:overflow-visible">
+      <div id="owner-links" className={`${open ? "block" : "hidden"} max-h-[75dvh] overflow-y-auto lg:block lg:max-h-none lg:overflow-visible`}>
+      <ul className="grid grid-cols-2 gap-1 px-2 pb-2 sm:grid-cols-3 lg:flex lg:flex-col">
         {links.map((l) => {
           const active = pathname.startsWith(l.href);
           return (
@@ -72,7 +80,7 @@ export function AdminNav({ businessName, email }: { businessName: string; email:
                 href={l.href}
                 aria-current={active ? "page" : undefined}
                 className={`flex min-h-11 items-center gap-2 whitespace-nowrap rounded-xl px-3 font-semibold ${
-                  active ? "bg-caramel text-white" : "text-ink hover:bg-crust"
+                  active ? "bg-caramel text-white hover:bg-caramel-dark" : "text-ink hover:bg-crust active:bg-crust-dark"
                 }`}
               >
                 <span aria-hidden>{l.icon}</span>
@@ -82,6 +90,10 @@ export function AdminNav({ businessName, email }: { businessName: string; email:
           );
         })}
       </ul>
+      <div className="flex flex-wrap gap-1 px-2 pb-2 lg:flex-col lg:px-4">
+        <Link href="/help" className="btn-ghost min-h-11 justify-start text-sm">❓ Help</Link>
+        <ThemeToggle className="justify-start" />
+      </div>
       {onTablet && (
         <div className="mx-2 mb-2 rounded-xl bg-ube-light p-3 text-sm text-ube lg:mx-4">
           <p className="font-semibold">Owner view on the POS tablet</p>
@@ -100,6 +112,7 @@ export function AdminNav({ businessName, email }: { businessName: string; email:
         <button onClick={signOut} className="btn-ghost text-sm">Sign out</button>
       </div>
       </>)}
+      </div>
     </nav>
   );
 }

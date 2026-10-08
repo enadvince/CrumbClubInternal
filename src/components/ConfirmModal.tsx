@@ -46,3 +46,24 @@ export function ConfirmModal({
     </Modal>
   );
 }
+
+type AskOptions = { title: string; body: ReactNode; confirmLabel: string; tone?: "danger" | "primary" };
+
+/**
+ * Promise-based confirmation, a drop-in for window.confirm():
+ *   const [ask, confirmEl] = useConfirm();
+ *   if (!(await ask({ title, body, confirmLabel }))) return;
+ * Render {confirmEl} somewhere in the component.
+ */
+export function useConfirm(): [(o: AskOptions) => Promise<boolean>, ReactNode] {
+  const [pending, setPending] = useState<(AskOptions & { resolve: (v: boolean) => void }) | null>(null);
+  const ask = (o: AskOptions) => new Promise<boolean>((resolve) => setPending({ ...o, resolve }));
+  const done = (v: boolean) => { pending?.resolve(v); setPending(null); };
+  const el = (
+    <ConfirmModal open={!!pending} title={pending?.title ?? ""} confirmLabel={pending?.confirmLabel ?? "OK"} tone={pending?.tone}
+      onClose={() => done(false)} onConfirm={() => done(true)}>
+      {typeof pending?.body === "string" ? <p>{pending.body}</p> : pending?.body}
+    </ConfirmModal>
+  );
+  return [ask, el];
+}

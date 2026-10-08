@@ -1,5 +1,7 @@
 "use client";
 import { useState, type FormEvent } from "react";
+import { SecretInput } from "@/components/SecretInput";
+import { ContactButton } from "@/components/ContactButton";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense } from "react";
 import { getSupabase } from "@/lib/supabase/client";
@@ -60,7 +62,7 @@ function LoginForm() {
         <input id="email" type="email" autoComplete="email" required className="input" value={email} onChange={(e) => setEmail(e.target.value)} />
       </Field>
       <Field label="Password" htmlFor="password">
-        <input id="password" type="password" autoComplete={mode === "signin" ? "current-password" : "new-password"} minLength={8} required className="input" value={password} onChange={(e) => setPassword(e.target.value)} />
+        <SecretInput id="password" autoComplete={mode === "signin" ? "current-password" : "new-password"} minLength={8} required value={password} onChange={(e) => setPassword(e.target.value)} />
       </Field>
       <button className="btn-primary w-full" disabled={busy}>{busy ? "Please wait…" : mode === "signin" ? "Sign in" : "Create account"}</button>
       <button type="button" className="btn-ghost w-full text-sm" onClick={() => setMode(mode === "signin" ? "signup" : "signin")}>
@@ -75,11 +77,12 @@ function LoginForm() {
 
 export default function LoginPage() {
   return (
-    <main className="flex min-h-dvh flex-col items-center justify-center gap-6 p-4">
+    <main id="main" className="flex min-h-dvh flex-col items-center justify-center gap-6 p-4">
       <Logo className="text-3xl text-caramel" />
       <Suspense>
         <LoginForm />
       </Suspense>
+      <ContactButton page="login" />
     </main>
   );
 }
