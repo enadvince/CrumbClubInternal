@@ -47,7 +47,7 @@ select pg_temp.check(not public.is_main_owner(pg_temp.ctx('biz_a')), 'co-owner i
 select pg_temp.check((select count(*) from public.products) > 0, 'co-owner reads products');
 select pg_temp.expect_fail($$select public.add_co_owner('co2@test.com', 'Co2', '4322')$$, 'co-owner added a co-owner');
 select pg_temp.expect_fail($$select public.reset_co_owner_pin(pg_temp.ctx('co'), '5555')$$, 'co-owner reset a PIN');
-select pg_temp.expect_fail($$select public.remove_co_owner(pg_temp.ctx('co'))$$, 'co-owner removed a co-owner');
+select pg_temp.expect_fail($$select public.remove_personnel((select id from public.staff where user_id = pg_temp.ctx('co')), '4321')$$, 'co-owner removed a co-owner');
 delete from public.memberships where user_id in (pg_temp.ctx('owner_a'), pg_temp.ctx('device_a'));
 select pg_temp.check((select count(*) from public.memberships where business_id = pg_temp.ctx('biz_a')) = 3, 'co-owner cannot delete memberships');
 
@@ -88,7 +88,7 @@ select pg_temp.check((public.co_owner_pin_login('co.owner@test.com', '5555')->>'
 
 -- Removing a co-owner ends their access and keeps their staff row inactive
 select pg_temp.login(pg_temp.ctx('owner_a'));
-select public.remove_co_owner(pg_temp.ctx('co'));
+select public.remove_personnel((select id from public.staff where user_id = pg_temp.ctx('co')), '9001');
 select pg_temp.check((select active from public.staff where user_id = pg_temp.ctx('co')) = false, 'staff row kept inactive');
 select pg_temp.login(pg_temp.ctx('co'));
 select pg_temp.check(not public.is_owner(pg_temp.ctx('biz_a')), 'removed co-owner has no access');
