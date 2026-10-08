@@ -147,6 +147,29 @@ do $$ begin
     if sqlerrm like 'ASSERTION%' then raise; end if;
   end;
 end $$;
-select public.set_staff_pin(pg_temp.ctx('staff_a'), '4321');
+select public.change_staff_pin(pg_temp.ctx('staff_a'), '1111', '4321');
+
+-- 13. Changing a PIN needs the current PIN
+do $$ begin
+  begin
+    perform public.change_staff_pin(pg_temp.ctx('staff_a'), '0000', '5678');
+    raise exception 'ASSERTION FAILED: wrong current PIN accepted';
+  exception when raise_exception then
+    if sqlerrm like 'ASSERTION%' then raise; end if;
+  end;
+  begin
+    perform public.set_staff_pin(pg_temp.ctx('staff_a'), '5678');
+    raise exception 'ASSERTION FAILED: set_staff_pin overwrote an existing PIN';
+  exception when raise_exception then
+    if sqlerrm like 'ASSERTION%' then raise; end if;
+  end;
+end $$;
+select pg_temp.check((select extensions.crypt('4321', pin_hash) = pin_hash from public.staff where id = pg_temp.ctx('staff_a')),
+  'PIN unchanged after failed attempts');
+-- A person with no PIN yet can be given one without a current PIN
+select pg_temp.logout();
+update public.staff set pin_hash = null where id = pg_temp.ctx('staff_a');
+select pg_temp.login(pg_temp.ctx('owner_a'));
+select public.set_staff_pin(pg_temp.ctx('staff_a'), '5678');
 
 rollback;
