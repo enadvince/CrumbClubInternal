@@ -2,6 +2,7 @@
 import { useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { Modal } from "@/components/Modal";
+import { ConfirmModal } from "@/components/ConfirmModal";
 import { getDb } from "@/lib/offline/db";
 import { adjustStockLocally, setAvailabilityLocally, type AdjustmentReason } from "@/lib/offline/actions";
 import { backupCsv, backupJson } from "@/lib/offline/backup";
@@ -29,6 +30,7 @@ export function OwnerMenu({
 }) {
   const [tab, setTab] = useState<Tab>("sync");
   const [message, setMessage] = useState<string | null>(null);
+  const [confirmUnpair, setConfirmUnpair] = useState(false);
   const unsynced = useLiveQuery(() => getDb().outbox.where("status").notEqual("synced").toArray(), [], []);
   const hasUnsynced = summary.pending + summary.failed > 0;
 
@@ -116,15 +118,21 @@ export function OwnerMenu({
               ✕ Blocked: {summary.pending + summary.failed} item(s) haven&apos;t synced. Sync first, or download a backup and ask for help.
             </p>
           )}
-          <button
-            className="btn-danger"
-            disabled={hasUnsynced}
-            onClick={async () => {
-              if (confirm("Unpair this tablet and clear its local data?")) await onUnpair();
-            }}
-          >
+          <button className="btn-danger" onClick={() => setConfirmUnpair(true)}>
             Unpair tablet and sign out
           </button>
+          <ConfirmModal
+            open={confirmUnpair}
+            title="Reset this tablet?"
+            confirmLabel="Unpair and clear data"
+            onClose={() => setConfirmUnpair(false)}
+            onConfirm={async () => { setConfirmUnpair(false); await onUnpair(); }}
+            blockedReason={hasUnsynced
+              ? `${summary.pending + summary.failed} item(s) are only on this tablet. Resetting now would lose them. Sync first, or download an emergency export and ask for help.`
+              : undefined}
+          >
+            <p>This signs the tablet out and deletes its local data, including its order counter. You&apos;ll need an owner login to set it up again.</p>
+          </ConfirmModal>
         </div>
       )}
     </Modal>

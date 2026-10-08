@@ -32,7 +32,7 @@ import { CheckoutModal } from "./CheckoutModal";
 import { DiscountModal } from "./DiscountModal";
 import { ShiftPanel } from "./ShiftPanel";
 import { OwnerMenu } from "./OwnerMenu";
-import { SyncPill, UnsyncedBanner } from "./SyncStatus";
+import { ConnectionToast, SyncPanel, SyncPill, UnsyncedBanner } from "./SyncStatus";
 import { useWakeLock } from "./useWakeLock";
 import { CART_KEY, requestBackgroundSync, SYNC_NOW_EVENT } from "@/lib/pwa";
 
@@ -124,6 +124,18 @@ export function PosApp() {
     const t = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(t);
   }, []);
+
+  // Warn before closing the tab while orders are still only on this tablet.
+  const unsyncedTotal = ops.filter((o) => o.status !== "synced").length;
+  useEffect(() => {
+    if (unsyncedTotal === 0) return;
+    const warn = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = "";
+    };
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [unsyncedTotal]);
 
   // ---- Restore cart and tab after a reload
   useEffect(() => {
@@ -351,7 +363,19 @@ export function PosApp() {
 
   const overlays = (
     <>
-      <SyncInfo open={showSync} onClose={() => setShowSync(false)} state={syncState} summary={summary} now={now} onSync={() => engineRef.current?.syncOnce()} onOwner={() => { setShowSync(false); openOwnerMenu(); }} />
+      <SyncPanel
+        open={showSync}
+        onClose={() => setShowSync(false)}
+        state={syncState}
+        summary={summary}
+        ops={ops}
+        now={now}
+        menuSyncedAt={cached?.value?.pulledAt ?? null}
+        onRetry={(seq) => void engineRef.current?.retryNow(seq)}
+        onRetryAll={() => void engineRef.current?.retryNow()}
+        onOwner={() => { setShowSync(false); openOwnerMenu(); }}
+      />
+      <ConnectionToast online={syncState.online} summary={summary} />
       <Modal open={ownerGate} onClose={() => setOwnerGate(false)} title="Owner PIN">
         <PinPad staff={staff} requireOwner title="Enter an owner PIN" onUnlock={(s, pin) => {
           setOwnerGate(false);
@@ -391,7 +415,7 @@ export function PosApp() {
     return (
       <main className="flex min-h-dvh flex-col">
         {header}
-        <UnsyncedBanner summary={summary} now={now} onOpen={openOwnerMenu} />
+        <UnsyncedBanner summary={summary} now={now} onOpen={() => setShowSync(true)} />
         <div className="flex flex-1 items-center justify-center p-4">
           <PinPad staff={staff} title="Enter your PIN" subtitle={snapshot.business.name} onUnlock={unlock} />
         </div>
@@ -404,7 +428,7 @@ export function PosApp() {
     return (
       <main className="flex min-h-dvh flex-col">
         {header}
-        <UnsyncedBanner summary={summary} now={now} onOpen={openOwnerMenu} />
+        <UnsyncedBanner summary={summary} now={now} onOpen={() => setShowSync(true)} />
         <Centered>
           <h1 className="text-2xl font-bold">
             {!event ? "No event is live" : event.status === "closed" ? "🔒 This event is closed" : "This event isn't live yet"}
@@ -425,7 +449,7 @@ export function PosApp() {
     <main className="flex h-dvh flex-col overflow-hidden">
       {header}
       {isPosDemo() && <p className="bg-ink px-4 py-1 text-center text-xs font-bold text-white">DEMO MODE — sales go to a fake in-browser server, not Supabase</p>}
-      <UnsyncedBanner summary={summary} now={now} onOpen={openOwnerMenu} />
+      <UnsyncedBanner summary={summary} now={now} onOpen={() => setShowSync(true)} />
       {notice && (
         <div role="status" className="flex items-center gap-3 bg-ube-light px-4 py-2 font-semibold text-ube">
           <span className="flex-1">{notice}</span>
@@ -609,25 +633,4 @@ function RegisterDevice({ staff, online, onRegister }: { staff: SnapshotStaff[];
 
 function Centered({ children }: { children: React.ReactNode }) {
   return <div className="flex flex-1 flex-col items-center justify-center gap-4 p-6 text-center">{children}</div>;
-}
-
-function SyncInfo({ open, onClose, state, summary, now, onSync, onOwner }: {
-  open: boolean; onClose: () => void; state: SyncState; summary: ReturnType<typeof summarizeOutbox>; now: number; onSync: () => void; onOwner: () => void;
-}) {
-  return (
-    <Modal open={open} onClose={onClose} title="Sync status">
-      <div className="space-y-3">
-        <p className="text-lg font-bold">{state.online ? "● Online" : "○ Offline"}</p>
-        <p>{summary.unsyncedSales === 0 ? "✓ All sales are saved to the cloud." : `${summary.unsyncedSales} sale(s) saved on this tablet, waiting to upload.`}</p>
-        {summary.oldestUnsyncedAt && <p className="text-sm text-ink-soft">Oldest unsynced: {timeAgo(summary.oldestUnsyncedAt, now)}</p>}
-        {summary.failed > 0 && <p className="font-semibold text-danger">✕ {summary.failed} item(s) were rejected by the server. An owner should check the owner menu.</p>}
-        <p className="text-sm text-ink-soft">Last successful sync: {state.lastSyncAt ? timeAgo(state.lastSyncAt, now) : "not yet"}</p>
-        <p className="text-sm text-ink-soft">Sales are always saved on the tablet first, so you can keep selling offline.</p>
-        <div className="flex flex-wrap gap-2">
-          <button className="btn-primary" onClick={onSync} disabled={state.syncing}>{state.syncing ? "Syncing…" : "↻ Sync now"}</button>
-          <button className="btn-secondary" onClick={onOwner}>Owner options</button>
-        </div>
-      </div>
-    </Modal>
-  );
 }

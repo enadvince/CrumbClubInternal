@@ -58,6 +58,11 @@ type LockManagerLike = {
   request<T>(name: string, options: { ifAvailable: boolean }, cb: (lock: unknown) => Promise<T>): Promise<T>;
 };
 
+function browserLocks(): LockManagerLike | null {
+  if (typeof navigator === "undefined" || !("locks" in navigator)) return null;
+  return navigator.locks as unknown as LockManagerLike;
+}
+
 /**
  * Pushes the queue to Supabase in creation order, then pulls a fresh snapshot.
  *  - Every entry carries a client id, so re-sending after a lost response is a no-op on the server.
@@ -83,8 +88,7 @@ export class SyncEngine {
     private readonly now: () => number = () => Date.now(),
     private readonly isOnline: () => boolean = () => (typeof navigator === "undefined" ? true : navigator.onLine),
     private readonly random: () => number = Math.random,
-    private readonly locks: LockManagerLike | null =
-      typeof navigator !== "undefined" && "locks" in navigator ? (navigator.locks as unknown as LockManagerLike) : null,
+    private readonly locks: LockManagerLike | null = browserLocks(),
   ) {}
 
   subscribe(fn: (s: SyncState) => void): () => void {

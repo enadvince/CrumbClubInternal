@@ -14,11 +14,13 @@ async function sellOneUbeCash(page: Page) {
   await page.getByRole("button", { name: "Exact" }).click();
   await page.getByRole("button", { name: /^Complete sale/ }).click();
   await expect(page.getByText("Sale saved")).toBeVisible();
+  await expect(page.getByTestId("order-number")).toContainText(/#\d{3}\s*T1-\d{6}-\d{4}/);
+  await expect(page.getByText("Sale saved")).toBeHidden({ timeout: 5_000 });
 }
 
 test("sells offline, shows unsynced count, syncs when back online", async ({ page, context }) => {
   await unlock(page);
-  await expect(page.getByRole("button", { name: /Online · all synced/ })).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByRole("button", { name: /Sync status: All synced/ })).toBeVisible({ timeout: 15_000 });
   await expect(page.getByRole("button", { name: /^Ube Croissant.*24 left/ })).toBeVisible();
 
   await context.setOffline(true);
@@ -26,15 +28,20 @@ test("sells offline, shows unsynced count, syncs when back online", async ({ pag
   await sellOneUbeCash(page);
   await sellOneUbeCash(page);
 
-  await expect(page.getByRole("button", { name: /Offline · 2 unsynced/ })).toBeVisible();
+  await expect(page.getByRole("button", { name: /Offline: orders saved on this device/ })).toBeVisible();
   await expect(page.getByRole("button", { name: /^Ube Croissant.*22 left/ })).toBeVisible();
+  // The sync panel lists both orders with their numbers.
+  await page.getByTestId("sync-pill").click();
+  await expect(page.getByTestId("sync-item")).toHaveCount(2);
+  await expect(page.getByTestId("sync-item").first()).toContainText(/T1-\d{6}-0001/);
+  await page.keyboard.press("Escape");
 
   // Survives a reload while offline (served from IndexedDB; page from the HTTP cache/dev server)
   await context.setOffline(false);
   await page.reload();
   await expect(page.getByRole("tab", { name: /Individual Items/ })).toBeVisible({ timeout: 20_000 });
 
-  await expect(page.getByRole("button", { name: /Online · all synced/ })).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByRole("button", { name: /Sync status: All synced/ })).toBeVisible({ timeout: 20_000 });
   await page.getByRole("tab", { name: /Individual Items/ }).click();
   // Server now has both sales; stock is not double-counted.
   await expect(page.getByRole("button", { name: /^Ube Croissant.*22 left/ })).toBeVisible();
@@ -140,7 +147,7 @@ test("cold start with no network: the POS opens from the service worker cache", 
   await fresh.getByRole("button", { name: "Exact" }).click();
   await fresh.getByRole("button", { name: /^Complete sale/ }).click();
   await expect(fresh.getByText("Sale saved")).toBeVisible();
-  await expect(fresh.getByRole("button", { name: /Offline · 1 unsynced/ })).toBeVisible();
+  await expect(fresh.getByRole("button", { name: /Offline: orders saved on this device/ })).toBeVisible();
 });
 
 test("PWA manifest is served", async ({ request }) => {
