@@ -2,21 +2,46 @@ import { saleStockEffects } from "../pos/cart";
 import type { SalePayload } from "../pos/types";
 import type { LocalSale, OutboxOp, PosDatabase } from "./db";
 import type { PinUseAction } from "./sync";
+import { takeOrderNumber } from "./numbering";
 
 export const UNDO_WINDOW_MS = 60_000;
 
 /**
- * Records a sale on the device. One IndexedDB transaction writes the sale and
- * queues it for sync, so a sale is never half-saved. No network involved.
+ * Records a sale on the device. One IndexedDB transaction takes the next order
+ * number, writes the sale and queues it for sync, so a sale is never half-saved
+ * and a number is never reused, even after a crash. No network involved.
  */
 export async function recordSaleLocally(
   db: PosDatabase,
-  sale: SalePayload,
+  draft: SalePayload,
   meta: { staffName: string; summary: string },
   now = Date.now(),
 ): Promise<LocalSale> {
-  const local: LocalSale = {
+  return db.transaction("rw", db.sales, db.outbox, db.kv, async () => {
+    const { orderNumber, deviceId } = await takeOrderNumber(db, now);
+    const sale: SalePayload = { ...draft, order_number: orderNumber, device_id: deviceId };
+    const local = localSaleFrom(sale, meta);
+    const op: OutboxOp = {
+      opId: sale.id,
+      type: "sale",
+      eventId: sale.event_id,
+      payload: sale,
+      effects: saleStockEffects(sale),
+      createdAt: now,
+      status: "pending",
+      attempts: 0,
+      display: { orderNumber, amount: sale.total_centavos, label: meta.summary },
+    };
+    await db.sales.add(local);
+    await db.outbox.add(op);
+    return local;
+  });
+}
+
+function localSaleFrom(sale: SalePayload, meta: { staffName: string; summary: string }): LocalSale {
+  return {
     id: sale.id,
+    orderNumber: sale.order_number,
     eventId: sale.event_id,
     staffId: sale.staff_id,
     staffName: meta.staffName,
@@ -28,22 +53,8 @@ export async function recordSaleLocally(
     status: "completed",
     syncedAt: null,
     payload: sale,
+    paymentStatus: sale.payment_method === "cash" ? "paid" : "awaiting_verification",
   };
-  const op: OutboxOp = {
-    opId: sale.id,
-    type: "sale",
-    eventId: sale.event_id,
-    payload: sale,
-    effects: saleStockEffects(sale),
-    createdAt: now,
-    status: "pending",
-    attempts: 0,
-  };
-  await db.transaction("rw", db.sales, db.outbox, async () => {
-    await db.sales.add(local);
-    await db.outbox.add(op);
-  });
-  return local;
 }
 
 export class UndoError extends Error {}

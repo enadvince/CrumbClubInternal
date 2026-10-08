@@ -1,6 +1,7 @@
 import type { SalePayload, Snapshot } from "../pos/types";
 import { KV, type CachedSnapshot, type OutboxOp, type PosDatabase } from "./db";
 import { isReflected, summarizeOutbox } from "./stock";
+import { applyDeviceState } from "./numbering";
 
 /** A failed network call. `permanent` = the server rejected the data (retrying won't help). */
 export class SyncError extends Error {
@@ -21,7 +22,13 @@ export interface SyncTransport {
   logPinUse(use: PinUsePayload): Promise<void>;
   fetchSnapshot(eventId: string | null): Promise<Snapshot>;
   heartbeat(unsyncedCount: number, oldestUnsyncedAt: string | null): Promise<void>;
+  /** Claims (or returns) this tablet's device code. Needs the internet. */
+  claimDeviceCode(label?: string): Promise<ClaimedDevice>;
+  /** Lightweight health check: the API answers and the login works. Returns the server clock. */
+  ping(): Promise<{ server_time: string }>;
 }
+
+export type ClaimedDevice = { device_id: string; device_code: string; label: string | null };
 
 export type SyncState = {
   syncing: boolean;
@@ -156,6 +163,7 @@ export class SyncEngine {
       snapshot = await this.transport.fetchSnapshot(cached.snapshot.event.id);
     }
     await this.db.setKv<CachedSnapshot>(KV.snapshot, { snapshot, pulledAt, pullSeq });
+    await applyDeviceState(this.db, snapshot.device, this.now());
 
     const voided = new Set(snapshot.voided_transaction_ids ?? []);
     if (voided.size > 0) {

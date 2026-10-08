@@ -90,6 +90,9 @@ export default function TransactionsPage() {
         <Field label="To" htmlFor="f-to">
           <input id="f-to" type="date" className="input" value={filters.to ?? ""} min={filters.from} onChange={(e) => set({ to: e.target.value || undefined })} />
         </Field>
+        <Field label="Order number" htmlFor="f-order">
+          <input id="f-order" className="input" placeholder="e.g. 0042 or T1-261008" value={filters.orderSearch ?? ""} onChange={(e) => set({ orderSearch: e.target.value || undefined })} />
+        </Field>
         <Field label="QR Ph reference" htmlFor="f-qr">
           <input id="f-qr" className="input" inputMode="numeric" placeholder="Search reference" value={filters.qrSearch ?? ""} onChange={(e) => set({ qrSearch: e.target.value || undefined })} />
         </Field>
@@ -128,6 +131,7 @@ export default function TransactionsPage() {
               <thead className="bg-cream text-left text-ink-soft">
                 <tr>
                   <th className="p-3 font-semibold">Time</th>
+                  <th className="p-3 font-semibold">Order</th>
                   <th className="p-3 font-semibold">Event</th>
                   <th className="p-3 font-semibold">Staff</th>
                   <th className="p-3 font-semibold">Items</th>
@@ -144,6 +148,7 @@ export default function TransactionsPage() {
                         {formatDateTime(t.client_created_at)}
                       </button>
                     </td>
+                    <td className="p-3 font-mono whitespace-nowrap">{t.order_number}</td>
                     <td className="p-3">{t.events?.name}</td>
                     <td className="p-3">{t.staff?.name}</td>
                     <td className="p-3">{t.item_count}{t.has_bundle && <span className="badge ml-1 bg-ube-light text-ube">Bundle</span>}</td>
@@ -212,6 +217,7 @@ function TransactionDetail({ txn, onClose, onVoided }: { txn: TxnRow | null; onC
           {error && <Notice tone="danger">{error}</Notice>}
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div className="text-sm">
+              <p className="font-mono text-lg font-bold">{txn.order_number}</p>
               <p><strong>{formatDateTime(txn.client_created_at)}</strong> · {txn.events?.name}</p>
               <p>Rung up by <strong>{txn.staff?.name}</strong></p>
               <p className="text-ink-soft">Synced {formatDateTime(txn.synced_at)} · ID {txn.id.slice(0, 8)}</p>

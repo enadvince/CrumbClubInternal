@@ -4,8 +4,10 @@ import { useLiveQuery } from "dexie-react-hooks";
 import Link from "next/link";
 import { getSupabase } from "@/lib/supabase/client";
 import { isSupabaseConfigured } from "@/lib/supabase/env";
-import { getDb, KV, type ActiveStaff, type CachedSnapshot } from "@/lib/offline/db";
-import { SyncEngine, type SyncState } from "@/lib/offline/sync";
+import { getDb, KV, type ActiveStaff, type CachedSnapshot, type DeviceInfo } from "@/lib/offline/db";
+import { SyncEngine, type SyncState, type SyncTransport } from "@/lib/offline/sync";
+import { applyDeviceState, shortOrderNumber } from "@/lib/offline/numbering";
+import { uuidv7 } from "@/lib/uuid";
 import { supabaseTransport } from "@/lib/offline/transport";
 import { demoTransport, isPosDemo } from "@/lib/offline/demoTransport";
 import { localAvailability, localStock, summarizeOutbox } from "@/lib/offline/stock";
@@ -38,18 +40,20 @@ const TAB_KEY = "crumbclub-pos-tab";
 const newId = () => crypto.randomUUID();
 
 type Boot = "loading" | "unconfigured" | "unpaired" | "ready";
-type LastSale = { id: string; total: number; change: number | null; createdAt: number };
+type LastSale = { id: string; orderNumber?: string; total: number; change: number | null; createdAt: number };
 
 export function PosApp() {
   const db = getDb();
   const [boot, setBoot] = useState<Boot>("loading");
   const engineRef = useRef<SyncEngine | null>(null);
+  const transportRef = useRef<SyncTransport | null>(null);
   const [syncState, setSyncState] = useState<SyncState>({ syncing: false, online: true, lastSyncAt: null, lastAttemptAt: null, lastError: null, consecutiveFailures: 0 });
   const [now, setNow] = useState(() => Date.now());
 
   const cached = useLiveQuery(async () => ({ value: await db.getKv<CachedSnapshot>(KV.snapshot) }), []);
   const ops = useLiveQuery(() => db.outbox.toArray(), [], []);
   const activeStaff = useLiveQuery(async () => ({ value: await db.getKv<ActiveStaff | null>(KV.activeStaff) }), []);
+  const device = useLiveQuery(async () => ({ value: await db.getKv<DeviceInfo>(KV.device) }), []);
 
   const [cart, setCart] = useState<CartLine[]>([]);
   const [discount, setDiscount] = useState<Discount | null>(null);
@@ -82,7 +86,7 @@ export function PosApp() {
     (async () => {
       // Coming back from owner view (or it was left open): put the device login back first.
       await restoreDeviceSession().catch(() => false);
-      const paired = await db.getKv<{ userId: string }>("device");
+      const paired = await db.getKv<DeviceInfo>(KV.device);
       let userId: string | null = null;
       try {
         const { data } = await Promise.race([
@@ -93,7 +97,8 @@ export function PosApp() {
       } catch {
         // offline; fall back to the local flag
       }
-      if (userId && userId !== paired?.userId) await db.setKv("device", { userId });
+      // A different login means a re-paired tablet: its old device code no longer applies.
+      if (userId && userId !== paired?.userId) await db.setKv<DeviceInfo>(KV.device, { userId });
       if (cancelled) return;
       setBoot(userId || paired ? "ready" : "unpaired");
     })();
@@ -103,7 +108,9 @@ export function PosApp() {
   // ---- Background sync
   useEffect(() => {
     if (boot !== "ready") return;
-    const engine = new SyncEngine(db, isPosDemo() ? demoTransport() : supabaseTransport(getSupabase()));
+    const transport = isPosDemo() ? demoTransport() : supabaseTransport(getSupabase());
+    transportRef.current = transport;
+    const engine = new SyncEngine(db, transport);
     engineRef.current = engine;
     const unsub = engine.subscribe(setSyncState);
     engine.start();
@@ -195,17 +202,17 @@ export function PosApp() {
   async function completeSale(payment: PaymentDetails) {
     if (!menu || !currentStaff) throw new Error("Not ready");
     const createdAt = new Date();
-    const sale = buildSale({ id: newId(), menu, priced, discount, payment, staffId: currentStaff.id, createdAt });
+    const sale = buildSale({ id: uuidv7(createdAt.getTime()), menu, priced, discount, payment, staffId: currentStaff.id, createdAt });
     const summaryText = priced.lines.map((l) => `${l.line.quantity > 1 ? `${l.line.quantity}× ` : ""}${l.name}`).join(", ");
-    await recordSaleLocally(db, sale, { staffName: currentStaff.name, summary: summaryText }, createdAt.getTime());
-    const done: LastSale = { id: sale.id, total: sale.total_centavos, change: sale.change_given_centavos, createdAt: createdAt.getTime() };
+    const saved = await recordSaleLocally(db, sale, { staffName: currentStaff.name, summary: summaryText }, createdAt.getTime());
+    const done: LastSale = { id: sale.id, orderNumber: saved.orderNumber, total: sale.total_centavos, change: sale.change_given_centavos, createdAt: createdAt.getTime() };
     // Reset immediately for the next customer.
     setCart([]);
     setDiscount(null);
     setCheckingOut(false);
     setLastSale(done);
     setConfirmation(done);
-    setTimeout(() => setConfirmation((c) => (c?.id === done.id ? null : c)), 1600);
+    setTimeout(() => setConfirmation((c) => (c?.id === done.id ? null : c)), 2200);
     engineRef.current?.requestSync();
   }
 
@@ -271,7 +278,7 @@ export function PosApp() {
   }
 
   // ---- Screens
-  if (boot === "loading" || cached === undefined || activeStaff === undefined) {
+  if (boot === "loading" || cached === undefined || activeStaff === undefined || device === undefined) {
     return <main className="flex min-h-dvh items-center justify-center"><Spinner label="Starting POS" /></main>;
   }
   if (boot === "unconfigured") {
@@ -294,6 +301,22 @@ export function PosApp() {
         {syncState.lastError && <p className="text-danger">✕ {syncState.lastError}</p>}
         <button className="btn-primary" onClick={() => engineRef.current?.syncOnce()}>Try again</button>
       </Centered>
+    );
+  }
+
+  if (!device?.value?.deviceCode) {
+    return (
+      <main id="main" className="flex min-h-dvh flex-col">
+        <RegisterDevice
+          staff={staff}
+          online={syncState.online}
+          onRegister={async () => {
+            const claimed = await transportRef.current!.claimDeviceCode();
+            await applyDeviceState(db, { id: claimed.device_id, code: claimed.device_code, label: claimed.label, order_counters: {} }, Date.now());
+            engineRef.current?.requestSync();
+          }}
+        />
+      </main>
     );
   }
 
@@ -492,6 +515,12 @@ export function PosApp() {
           <div className="animate-[popin_180ms_ease-out] rounded-3xl bg-ok px-10 py-8 text-center text-white shadow-2xl">
             <p className="text-6xl" aria-hidden>✓</p>
             <p className="text-2xl font-black">Sale saved</p>
+            {confirmation.orderNumber && (
+              <p className="mt-2" data-testid="order-number">
+                <span className="block text-6xl font-black tabular-nums">#{shortOrderNumber(confirmation.orderNumber)}</span>
+                <span className="text-sm font-semibold opacity-90">{confirmation.orderNumber}</span>
+              </p>
+            )}
             {confirmation.change != null && confirmation.change > 0 && <p className="text-xl font-bold">Change: {formatPeso(confirmation.change)}</p>}
           </div>
         </div>
@@ -537,6 +566,40 @@ function FilterChips<T extends string>({ label, options, value, onChange }: {
         </button>
       ))}
     </div>
+  );
+}
+
+/** One-time setup: a tablet needs a device code (T1, T2...) before it can number orders. */
+function RegisterDevice({ staff, online, onRegister }: { staff: SnapshotStaff[]; online: boolean; onRegister: () => Promise<void> }) {
+  const [state, setState] = useState<{ busy: boolean; error: string | null }>({ busy: false, error: null });
+  return (
+    <Centered>
+      <h1 className="text-2xl font-bold">Register this tablet</h1>
+      <p className="max-w-md text-ink-soft">
+        Each tablet gets a short code (T1, T2...) that starts every order number, so two tablets can never give out the same number.
+        An owner PIN is needed, and the internet this one time.
+      </p>
+      {state.error && <p role="alert" className="font-semibold text-danger">✕ {state.error}</p>}
+      {!online ? (
+        <p className="font-semibold text-warn">○ Offline. Connect to Wi-Fi or a phone hotspot to register.</p>
+      ) : state.busy ? (
+        <Spinner label="Registering" />
+      ) : (
+        <PinPad
+          staff={staff}
+          requireOwner
+          title="Owner PIN to register"
+          onUnlock={async () => {
+            setState({ busy: true, error: null });
+            try {
+              await onRegister();
+            } catch (e) {
+              setState({ busy: false, error: errorMessage(e) });
+            }
+          }}
+        />
+      )}
+    </Centered>
   );
 }
 

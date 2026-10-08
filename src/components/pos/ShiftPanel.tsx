@@ -29,6 +29,7 @@ export function ShiftPanel({ open, onClose, eventId, staffId, staffName }: { ope
           {sales.map((s) => (
             <li key={s.id} className={`flex flex-wrap items-center gap-3 py-2 ${s.status === "voided" ? "text-ink-soft line-through" : ""}`}>
               <span className="w-20 tabular-nums">{formatTime(s.createdAt)}</span>
+              <span className="w-32 font-mono text-sm">{s.orderNumber ?? ""}</span>
               <span className="min-w-0 flex-1 truncate">{s.summary}</span>
               <span className="text-sm">{s.paymentMethod === "cash" ? "Cash" : `QR ${s.qrReference}`}</span>
               <span className="w-24 text-right font-bold tabular-nums">{formatPeso(s.total)}</span>

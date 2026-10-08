@@ -1,6 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Snapshot } from "../pos/types";
-import { SyncError, type SyncTransport } from "./sync";
+import { SyncError, type ClaimedDevice, type SyncTransport } from "./sync";
 
 const TIMEOUT_MS = 15_000;
 
@@ -36,7 +36,8 @@ export function supabaseTransport(supabase: SupabaseClient, appVersion = "1"): S
   return {
     async recordSale(sale) {
       // "ok" and "duplicate" both mean the server has this sale.
-      await rpc("record_sale", { p_sale: sale }, "Sale");
+      // device_sent_at lets the server measure this tablet's clock drift.
+      await rpc("record_sale", { p_sale: { ...sale, device_sent_at: new Date().toISOString() } }, "Sale");
     },
     async voidSale(a) {
       await rpc("void_sale", { p_transaction_id: a.transaction_id, p_reason: a.reason, p_staff_id: a.staff_id, p_voided_at: a.voided_at }, "Undo");
@@ -52,6 +53,12 @@ export function supabaseTransport(supabase: SupabaseClient, appVersion = "1"): S
     },
     async fetchSnapshot(eventId) {
       return rpc<Snapshot>("pos_snapshot", { p_event_id: eventId }, "Menu download");
+    },
+    async claimDeviceCode(label) {
+      return rpc<ClaimedDevice>("claim_device_code", { p_label: label ?? null }, "Device registration");
+    },
+    async ping() {
+      return rpc<{ server_time: string }>("pos_ping", {}, "Health check");
     },
     async heartbeat(count, oldest) {
       await rpc("device_heartbeat", { p_unsynced_count: count, p_oldest_unsynced_at: oldest, p_app_version: appVersion }, "Heartbeat");

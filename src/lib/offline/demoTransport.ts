@@ -12,7 +12,7 @@ import { SyncError, type SyncTransport } from "./sync";
 const KEY = "crumbclub-demo-server";
 
 type DemoState = {
-  sales: Record<string, { lines: SalePayload["lines"]; status: "completed" | "voided"; qr: string | null }>;
+  sales: Record<string, { lines: SalePayload["lines"]; status: "completed" | "voided"; qr: string | null; orderNumber?: string }>;
   adjustments: Record<string, { event_product_id: string; quantity_change: number }>;
   availability: Record<string, boolean>;
 };
@@ -36,6 +36,16 @@ function staff(): Snapshot["staff"] {
   return staffCache;
 }
 
+/** Highest order sequence per day the demo server has seen, like the real snapshot sends. */
+function counters(s: DemoState): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const sale of Object.values(s.sales)) {
+    const m = /^T\d+-(\d{6})-(\d+)$/.exec(sale.orderNumber ?? "");
+    if (m) out[m[1]] = Math.max(out[m[1]] ?? 0, Number(m[2]));
+  }
+  return out;
+}
+
 export function demoTransport(): SyncTransport {
   const guard = async () => {
     await new Promise((r) => setTimeout(r, 120));
@@ -45,7 +55,7 @@ export function demoTransport(): SyncTransport {
     async recordSale(sale) {
       await guard();
       const s = load();
-      s.sales[sale.id] ??= { lines: sale.lines, status: "completed", qr: sale.qr_reference };
+      s.sales[sale.id] ??= { lines: sale.lines, status: "completed", qr: sale.qr_reference, orderNumber: sale.order_number };
       save(s);
     },
     async voidSale(a) {
@@ -86,9 +96,18 @@ export function demoTransport(): SyncTransport {
       });
       snap.voided_transaction_ids = Object.entries(s.sales).filter(([, v]) => v.status === "voided").map(([k]) => k);
       snap.recent_qr_refs = Object.values(s.sales).map((v) => v.qr).filter((r): r is string => !!r);
+      snap.device = { id: "demo-device", code: "T1", label: "Demo tablet", order_counters: counters(s) };
       return snap;
     },
     async heartbeat() {},
+    async claimDeviceCode() {
+      await guard();
+      return { device_id: "demo-device", device_code: "T1", label: "Demo tablet" };
+    },
+    async ping() {
+      await guard();
+      return { server_time: new Date().toISOString() };
+    },
   };
 }
 

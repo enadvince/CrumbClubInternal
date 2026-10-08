@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { linesCsv, manilaTimestamp, transactionsCsv, type LineRow, type TxnRow } from "./transactions";
 
 const txn: TxnRow = {
-  id: "t1", event_id: "e1", staff_id: "s1", client_created_at: "2026-10-10T03:40:05Z", synced_at: "2026-10-10T03:41:00Z",
+  id: "t1", order_number: "T1-261010-0007", device_id: "d1", created_at: "2026-10-10T03:41:00Z", event_id: "e1", staff_id: "s1", client_created_at: "2026-10-10T03:40:05Z", synced_at: "2026-10-10T03:41:00Z",
   subtotal_centavos: 19000, discount_type: "percent", discount_value: 1000, discount_centavos: 1900, discount_reason: "Promo, weekend",
   total_centavos: 17100, payment_method: "cash", qr_reference: null, cash_received_centavos: 20000, change_given_centavos: 2900,
   item_count: 2, has_bundle: true, status: "completed", void_reason: null, voided_at: null, flags: [],
@@ -17,6 +17,7 @@ describe("exports", () => {
   it("transactions CSV has exact decimal money and escapes text", () => {
     const csv = transactionsCsv([txn]);
     expect(csv.split("\r\n")[1]).toContain('"Promo, weekend",171.00,cash');
+    expect(csv.split("\r\n")[1]).toMatch(/^t1,T1-261010-0007,2026-10-10 11:40:05,2026-10-10 11:41:00,/);
   });
 
   it("line CSV expands bundle components with net revenue and profit", () => {

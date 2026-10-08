@@ -49,6 +49,8 @@ class FakeServer implements SyncTransport {
     if (!this.pinUses.has(u.id)) this.pinUses.set(u.id, u);
   }
   async heartbeat() { /* not recorded */ }
+  async claimDeviceCode() { this.guard("claim"); return { device_id: "device-1", device_code: "T1", label: null }; }
+  async ping() { this.guard("ping"); return { server_time: new Date().toISOString() }; }
   serverStock(ep: string) {
     const start = this.base.products!.find((p) => p.event_product_id === ep)!.stock;
     let sold = 0;

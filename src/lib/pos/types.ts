@@ -12,7 +12,11 @@ export type Snapshot = {
   voided_transaction_ids?: string[];
   /** Preset discounts set up by the owner (older servers don't send it) */
   discount_options?: DiscountOption[];
+  /** This tablet's registration and the highest order sequence the server has seen per day */
+  device?: SnapshotDevice | null;
 };
+
+export type SnapshotDevice = { id: string; code: string; label: string | null; order_counters: Record<string, number> };
 
 /** Owner-defined preset discount. value: basis points for percent (1000 = 10%), centavos for fixed. */
 export type DiscountOption = { id: string; name: string; type: "percent" | "fixed"; value: number };
@@ -108,7 +112,11 @@ export type PaymentDetails =
 
 /** JSON payload for the record_sale() RPC. Also what the tablet stores locally. */
 export type SalePayload = {
+  /** client_order_id: UUID v7 minted on the tablet, the idempotency key */
   id: string;
+  /** {DEVICE_CODE}-{YYMMDD}-{SEQ}. Absent on sales made before order numbering. */
+  order_number?: string;
+  device_id?: string | null;
   event_id: string;
   staff_id: string;
   client_created_at: string;
