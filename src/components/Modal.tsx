@@ -21,11 +21,11 @@ export function Modal({
       onCancel={(e) => { e.preventDefault(); onClose(); }}
       onClick={(e) => { if (e.target === ref.current) onClose(); }}
       aria-labelledby="modal-title"
-      className={`m-auto max-h-[92dvh] w-[calc(100%-2rem)] ${wide ? "max-w-3xl" : "max-w-lg"} rounded-2xl bg-paper p-0 text-ink shadow-2xl backdrop:bg-ink/50`}
+      className={`m-auto max-h-[92dvh] w-[calc(100%-2rem)] ${wide ? "max-w-3xl" : "max-w-lg"} rounded-2xl bg-paper p-0 text-ink shadow-2xl ring-1 ring-ink/10 backdrop:bg-ink/40 backdrop:backdrop-blur-sm`}
     >
       {open && (
         <div className="flex max-h-[92dvh] flex-col">
-          <div className="flex items-center justify-between gap-4 border-b border-crust-dark px-5 py-3">
+          <div className="flex items-center justify-between gap-4 border-b border-crust px-5 py-3">
             <h2 id="modal-title" className="text-lg font-bold">{title}</h2>
             <button onClick={onClose} className="btn-ghost min-h-11 px-3" aria-label="Close">✕</button>
           </div>

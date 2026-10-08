@@ -22,6 +22,11 @@
   --color-series-1: #b0601a;
   --color-series-2: #7652b5;
   --color-grid: #ece3d6;
+  /* Layered elevation: a hairline ring plus soft shadows instead of a hard border */
+  --shadow-card: 0 0 0 1px rgb(36 22 12 / 0.08), 0 1px 2px -1px rgb(36 22 12 / 0.08), 0 2px 4px 0 rgb(36 22 12 / 0.05);
+  --shadow-card-hover: 0 0 0 1px rgb(36 22 12 / 0.1), 0 2px 4px -1px rgb(36 22 12 / 0.1), 0 6px 12px -2px rgb(36 22 12 / 0.08);
+  --shadow-btn: 0 1px 2px 0 rgb(36 22 12 / 0.15), inset 0 1px 0 0 rgb(255 255 255 / 0.15);
+  --ease-out-soft: cubic-bezier(0.23, 1, 0.32, 1);
   --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
 }
 
@@ -43,28 +48,32 @@ body {
 
 @utility btn {
     @apply inline-flex min-h-12 items-center justify-center gap-2 rounded-xl px-4 py-2 font-semibold
-      transition-[transform,background-color] duration-75 select-none
+      transition-[transform,background-color,box-shadow,filter] duration-150 ease-(--ease-out-soft) select-none
       active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-50;
   }
 
-@utility btn-primary { @apply btn bg-caramel text-white hover:bg-caramel-dark; }
+@utility btn-primary { @apply btn bg-caramel text-white shadow-(--shadow-btn) hover:bg-caramel-dark; }
 
-@utility btn-ube { @apply btn bg-ube text-white hover:brightness-110; }
+@utility btn-ube { @apply btn bg-ube text-white shadow-(--shadow-btn) hover:brightness-110; }
 
-@utility btn-secondary { @apply btn border-2 border-crust-dark bg-paper text-ink hover:bg-crust; }
+@utility btn-secondary { @apply btn bg-paper text-ink shadow-(--shadow-card) hover:bg-cream hover:shadow-(--shadow-card-hover); }
 
-@utility btn-danger { @apply btn bg-danger text-white hover:brightness-110; }
+@utility btn-danger { @apply btn bg-danger text-white shadow-(--shadow-btn) hover:brightness-110; }
 
 @utility btn-ghost { @apply btn text-ink hover:bg-crust; }
 
-@utility card { @apply rounded-2xl border border-crust-dark bg-paper; }
+@utility card { @apply rounded-2xl bg-paper shadow-(--shadow-card); }
 
 @utility input {
     @apply min-h-12 w-full rounded-xl border-2 border-crust-dark bg-paper px-3 py-2 text-ink
-      placeholder:text-ink-soft/70 focus:border-ube focus:outline-none;
+      transition-[border-color,box-shadow] duration-150
+      placeholder:text-ink-soft/70 focus:border-ube focus:shadow-[0_0_0_4px_var(--color-ube-light)] focus:outline-none;
   }
 
 @utility label { @apply mb-1 block text-sm font-semibold text-ink-soft; }
+
+/* Small uppercase caption above a figure or section */
+@utility eyebrow { @apply text-[0.7rem] font-bold tracking-wider text-ink-soft uppercase; }
 
 @utility badge { @apply inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-bold; }
 
