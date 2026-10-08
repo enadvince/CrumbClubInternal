@@ -26,6 +26,8 @@ Copy `.env.example` to `.env.local` and fill in:
 | `NEXT_PUBLIC_SUPABASE_URL` | Supabase → Project Settings → API → Project URL | browser + server |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` (or `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`) | Supabase → Project Settings → API → anon / publishable key | browser + server |
 | `SUPABASE_SERVICE_ROLE_KEY` (or `SUPABASE_SECRET_KEY`) | Supabase → Project Settings → API → service_role / secret key. **Server only — never expose it.** | `/api/device/pair` only (creates the tablet's login) |
+| `RESEND_API_KEY`, `INVITE_EMAIL_FROM` | [Resend](https://resend.com) API key and a sender on a domain verified there, e.g. `Crumb Club <invites@yourdomain.com>`. Optional: without them, invites are created and the owner copies the link. | `/api/owners/invite` |
+| `SITE_URL` | The public address of the site, e.g. `https://crumb-club-internal-two.vercel.app`. Used in invite links (defaults to the address the inviting owner is on). | `/api/owners/invite` |
 | `NEXT_PUBLIC_POS_DEMO` | Leave unset in real use. `1` runs the POS against a fake in-browser server (for demos and e2e tests). | POS |
 
 ### Database
@@ -54,7 +56,9 @@ The seed creates a dev owner `owner@crumbclub.test` / `crumbclub123` (owner PIN 
 4. On the tablet: sign in as the owner, go to **Set up POS tablet**, tap **Use this tablet as the POS**. The tablet now has its own restricted login. Add it to the home screen (Share → Add to Home Screen / Install app).
 
 ### Deploy (Vercel)
-Import the repo in Vercel, add the three environment variables, and deploy. Variables are read **at build time**: after adding or changing them, redeploy. No other configuration is needed. `public/sw.js` is served with `no-cache` so updates reach the tablet.
+Import the repo in Vercel, add the environment variables, and deploy. Variables are read **at build time**: after adding or changing them, redeploy. `public/sw.js` is served with `no-cache` so updates reach the tablet.
+
+**Deployment Protection:** owners, invitees and the tablet must be able to open the site without a Vercel account. In Vercel → Project → Settings → Deployment Protection, set Vercel Authentication to **Standard Protection** (previews only) or turn it off. With "All Deployments except Custom Domains" and no custom domain, every link (including email links) asks for a Vercel login. In Supabase → Authentication → URL Configuration, set **Site URL** to the production address too, so Supabase's own emails link there.
 
 ### Scripts
 
@@ -63,7 +67,7 @@ Import the repo in Vercel, add the three environment variables, and deploy. Vari
 | `npm run dev` / `build` / `start` | Next.js |
 | `npm run typecheck` | `tsc --noEmit` |
 | `npm test` | Unit tests (Vitest): money maths, allocation, cart and bundle logic, sync engine with IndexedDB, exports, dashboard insights |
-| `npm run test:db` | Applies every migration and the seed to a throwaway Postgres 16, then runs `supabase/tests/*.test.sql` (RLS isolation, idempotent sales, voids returning stock, close/report and dashboard figures) |
+| `npm run test:db` | Applies every migration and the seed to a throwaway Postgres 16, then runs `supabase/tests/*.test.sql` (RLS isolation, idempotent sales, voids returning stock, close/report and dashboard figures, owner invites) |
 | `npm run test:e2e` | Playwright: builds the app in demo mode and tests the POS offline (offline sales, sync on reconnect, cold start without network, bundles, QR Ph). Set `PLAYWRIGHT_CHROMIUM_PATH` if browsers are preinstalled elsewhere. |
 | `python3 scripts/make-icons.py` | Regenerates the PWA icons |
 
@@ -73,6 +77,7 @@ Import the repo in Vercel, add the three environment variables, and deploy. Vari
 
 ### Roles and security
 - **Owner** — Supabase email/password. Full access to their business's data.
+- **Inviting owners** — on **Owners**, an owner enters an email address. The invitee gets an email with a one-time link (expires in 7 days) to `/invite/<token>`, where they choose a password, their name and a 4-digit PIN, and join as an owner. If that email already has an account, they sign in with it instead. Only a SHA-256 hash of the token is stored; the account's email must match the invited email; re-inviting replaces the old link, and an open invite can be cancelled.
 - **Device** (the POS tablet) — its own Supabase login, created by an owner through `/pos/pair`. RLS lets it **read** the menu and record sales and stock changes **only through RPCs**. It cannot read staff rows, owner pages, the dashboard, or other businesses.
 - **Staff** — 4-digit PIN on the tablet. PINs are bcrypt hashes, set only through `set_staff_pin` (first PIN) or `change_staff_pin` (which requires the current PIN), and unique per business. They are checked on the tablet against cached hashes so unlocking works offline. A 4-digit PIN identifies who rang up a sale; the tablet's device login is the real security boundary.
 - **Owner view on the tablet** — tap **📊 Owner view** on the POS and enter an owner PIN to open the owner pages on the tablet. `/api/device/owner-session` (callable only by the device login) checks the PIN on the server, locks the tablet out for 15 minutes after 5 wrong PINs, and returns a session for that owner's own login. The device login is parked in IndexedDB meanwhile. **← Back to POS** (or 5 minutes without a tap) signs the owner out on the tablet and restores the device login. Needs the internet; sync pauses while owner view is open and resumes on return.
@@ -111,7 +116,7 @@ Import the repo in Vercel, add the three environment variables, and deploy. Vari
 - When loose items in the cart match a bundle that is cheaper, the cart offers a one-tap "Switch to *bundle* and save ₱X".
 
 ### Data model (main tables)
-- **Setup:** `businesses`, `memberships` (auth user → business, owner/device), `staff`
+- **Setup:** `businesses`, `memberships` (auth user → business, owner/device), `staff`, `owner_invites`
 - **Catalog:** `products`, `bundles`, `bundle_items`
 - **Events:** `events`, `event_products`, `event_bundles`
 - **Sales:** `transactions` → `transaction_lines` → `transaction_line_components`

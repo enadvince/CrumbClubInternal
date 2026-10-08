@@ -14,6 +14,7 @@ const links = [
   { href: "/admin/bundles", label: "Bundles", icon: "📦" },
   { href: "/admin/discounts", label: "Discounts", icon: "🏷️" },
   { href: "/admin/staff", label: "Staff", icon: "👥" },
+  { href: "/admin/owners", label: "Owners", icon: "🔐" },
   { href: "/admin/pin-log", label: "PIN log", icon: "🔑" },
 ];
 
