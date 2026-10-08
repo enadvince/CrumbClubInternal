@@ -34,7 +34,7 @@ import { ShiftPanel } from "./ShiftPanel";
 import { OwnerMenu } from "./OwnerMenu";
 import { SyncPill, UnsyncedBanner } from "./SyncStatus";
 import { useWakeLock } from "./useWakeLock";
-import { CART_KEY } from "@/lib/pwa";
+import { CART_KEY, requestBackgroundSync, SYNC_NOW_EVENT } from "@/lib/pwa";
 
 const TAB_KEY = "crumbclub-pos-tab";
 const newId = () => crypto.randomUUID();
@@ -47,7 +47,7 @@ export function PosApp() {
   const [boot, setBoot] = useState<Boot>("loading");
   const engineRef = useRef<SyncEngine | null>(null);
   const transportRef = useRef<SyncTransport | null>(null);
-  const [syncState, setSyncState] = useState<SyncState>({ syncing: false, online: true, lastSyncAt: null, lastAttemptAt: null, lastError: null, consecutiveFailures: 0 });
+  const [syncState, setSyncState] = useState<SyncState>({ syncing: false, syncingCount: 0, online: true, lastSyncAt: null, lastAttemptAt: null, lastError: null, consecutiveFailures: 0, clockOffsetMs: null });
   const [now, setNow] = useState(() => Date.now());
 
   const cached = useLiveQuery(async () => ({ value: await db.getKv<CachedSnapshot>(KV.snapshot) }), []);
@@ -114,7 +114,10 @@ export function PosApp() {
     engineRef.current = engine;
     const unsub = engine.subscribe(setSyncState);
     engine.start();
-    return () => { unsub(); engine.stop(); engineRef.current = null; };
+    // Background Sync (where supported) asks open tabs to sync via the service worker.
+    const onSyncNow = () => engine.requestSync();
+    window.addEventListener(SYNC_NOW_EVENT, onSyncNow);
+    return () => { unsub(); engine.stop(); window.removeEventListener(SYNC_NOW_EVENT, onSyncNow); engineRef.current = null; };
   }, [boot, db]);
 
   useEffect(() => {
@@ -214,6 +217,7 @@ export function PosApp() {
     setConfirmation(done);
     setTimeout(() => setConfirmation((c) => (c?.id === done.id ? null : c)), 2200);
     engineRef.current?.requestSync();
+    void requestBackgroundSync();
   }
 
   /** Undoing (voiding) a sale needs an owner PIN; the owner is recorded as the one who voided it. */

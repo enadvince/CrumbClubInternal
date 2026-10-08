@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { KV, PosDatabase, type CachedSnapshot } from "./db";
 import { recordSaleLocally, undoSale, adjustStockLocally, isDuplicateQrRef, logPinUseLocally, UndoError } from "./actions";
 import { localStock, summarizeOutbox } from "./stock";
-import { SyncEngine, SyncError, type PinUsePayload, type SyncTransport } from "./sync";
+import { IDLE_INTERVAL_MS, PENDING_INTERVAL_MS, SyncEngine, SyncError, type PinUsePayload, type SyncTransport } from "./sync";
 import { addBundle, addProduct, buildMenu, buildSale, priceCart } from "../pos/cart";
 import { sampleSnapshot } from "../pos/fixtures";
 import type { CartLine, SalePayload, Snapshot } from "../pos/types";
@@ -25,6 +25,7 @@ class FakeServer implements SyncTransport {
   }
   async recordSale(sale: SalePayload) {
     this.guard(`sale:${sale.id}`);
+    await this.onSend?.();
     if (this.rejectSaleIds.has(sale.id)) throw new SyncError("lines do not sum to subtotal", true);
     if (!this.sales.has(sale.id)) this.sales.set(sale.id, { ...sale, status: "completed" });
     if (this.loseNextResponse) {
@@ -50,7 +51,15 @@ class FakeServer implements SyncTransport {
   }
   async heartbeat() { /* not recorded */ }
   async claimDeviceCode() { this.guard("claim"); return { device_id: "device-1", device_code: "T1", label: null }; }
-  async ping() { this.guard("ping"); return { server_time: new Date().toISOString() }; }
+  /** Health check fails while the API is down even if the device thinks it's online */
+  apiDown = false;
+  /** Called while a sale is being sent, to inspect the tablet's state mid-request */
+  onSend: (() => Promise<void>) | null = null;
+  async ping() {
+    this.guard("ping");
+    if (this.apiDown) throw new SyncError("503 Service Unavailable", false);
+    return { server_time: new Date(clock + 90_000).toISOString() };
+  }
   serverStock(ep: string) {
     const start = this.base.products!.find((p) => p.event_product_id === ep)!.stock;
     let sold = 0;
@@ -80,8 +89,8 @@ let clock: number;
 let online: boolean;
 const now = () => clock;
 
-function engine(database = db) {
-  return new SyncEngine(database, server, now, () => online);
+function engine(database = db, locks: ConstructorParameters<typeof SyncEngine>[5] = null) {
+  return new SyncEngine(database, server, now, () => online, () => 0.5, locks);
 }
 
 async function sell(cart: CartLine[], opts: { qr?: string } = {}) {
@@ -185,6 +194,10 @@ describe("retries and duplicate prevention", () => {
     server.loseNextResponse = true; // a fails after recording
     await engine().syncOnce();
     expect(server.calls).not.toContain(`sale:${b.id}`);
+    // a is backing off (about 2s), and holds b back so b can't overtake it.
+    await engine().syncOnce();
+    expect(server.calls.filter((c) => c.startsWith("sale:"))).toEqual([`sale:${a.id}`]);
+    clock += 3000;
     await engine().syncOnce();
     const order = server.calls.filter((c) => c.startsWith("sale:"));
     expect(order).toEqual([`sale:${a.id}`, `sale:${a.id}`, `sale:${b.id}`]);
@@ -318,5 +331,105 @@ describe("PIN log", () => {
     expect(pushed[0]).toBe("pin:sign_in");
     expect(pushed[1]).toMatch(/^sale:/);
     expect(summarizeOutbox(await db.outbox.toArray()).pending).toBe(0);
+  });
+});
+
+describe("sync states, backoff and health checks", () => {
+  it("moves an order through pending, syncing and synced", async () => {
+    const sale = await sell(addProduct([], "ep-butter", lineId));
+    const statusOf = async () => (await db.outbox.where("opId").equals(sale.id).first())!.status;
+    expect(await statusOf()).toBe("pending");
+    let during: string | null = null;
+    server.onSend = async () => { during = await statusOf(); };
+    await engine().syncOnce();
+    expect(during).toBe("syncing");
+    expect(await statusOf()).toBe("synced");
+  });
+
+  it("a retryable failure records attempts, the error and the next retry time", async () => {
+    const sale = await sell(addProduct([], "ep-butter", lineId));
+    server.loseNextResponse = true;
+    await engine().syncOnce();
+    const op = (await db.outbox.where("opId").equals(sale.id).first())!;
+    expect(op).toMatchObject({ status: "pending", attempts: 1, lastError: "network timeout" });
+    expect(op.nextRetryAt).toBe(clock + 2000); // 2s with neutral jitter
+  });
+
+  it("an entry interrupted mid-send (tab killed) is sent again and never duplicated", async () => {
+    const sale = await sell(addProduct([], "ep-butter", lineId));
+    // Simulate a crash after the server stored the sale but before the tablet marked it synced.
+    await server.recordSale(sale);
+    await db.outbox.where("opId").equals(sale.id).modify({ status: "syncing" });
+    const result = await engine().syncOnce();
+    expect(result.ok).toBe(true);
+    expect((await db.outbox.where("opId").equals(sale.id).first())!.status).toBe("synced");
+    expect(server.sales.size).toBe(1);
+  });
+
+  it("re-sending every order again (forced resync) still leaves exactly one copy of each", async () => {
+    const sales = [await sell(addProduct([], "ep-butter", lineId)), await sell(addProduct([], "ep-ube", lineId)), await sell(addProduct([], "ep-choc", lineId))];
+    await engine().syncOnce();
+    await db.outbox.where("type").equals("sale").modify({ status: "pending" });
+    await engine().syncOnce();
+    expect(server.sales.size).toBe(3);
+    expect(sales.every((s) => server.sales.has(s.id))).toBe(true);
+  });
+
+  it("doesn't trust navigator.onLine: a failed health check means offline and nothing is sent", async () => {
+    const sale = await sell(addProduct([], "ep-butter", lineId));
+    server.apiDown = true;
+    const result = await engine().syncOnce();
+    expect(result).toMatchObject({ ok: false, error: "offline" });
+    expect(server.calls).not.toContain(`sale:${sale.id}`);
+    // No attempt was made, so no backoff either.
+    expect((await db.outbox.where("opId").equals(sale.id).first())!.attempts).toBe(0);
+  });
+
+  it("measures the tablet's clock offset from the health check", async () => {
+    const e = engine();
+    await e.syncOnce();
+    expect(e.state.clockOffsetMs).toBe(90_000);
+    expect(await db.getKv(KV.clockOffsetMs)).toBe(90_000);
+  });
+
+  it("Retry now clears a failure and the backoff", async () => {
+    const bad = await sell(addProduct([], "ep-butter", lineId));
+    server.rejectSaleIds.add(bad.id);
+    const e = engine();
+    await e.syncOnce();
+    const op = (await db.outbox.where("opId").equals(bad.id).first())!;
+    expect(op.status).toBe("failed");
+    server.rejectSaleIds.clear();
+    await e.retryNow(op.seq);
+    expect((await db.outbox.where("opId").equals(bad.id).first())!.status).toBe("synced");
+  });
+
+  it("only one tab syncs at a time (Web Locks)", async () => {
+    await sell(addProduct([], "ep-butter", lineId));
+    let held = false;
+    const locks = {
+      async request<T>(_: string, __: { ifAvailable: boolean }, cb: (lock: unknown) => Promise<T>): Promise<T> {
+        if (held) return cb(null);
+        held = true;
+        try { return await cb({}); } finally { held = false; }
+      },
+    };
+    const db2 = new PosDatabase(dbName); // second tab, same IndexedDB
+    const [r1, r2] = await Promise.all([engine(db, locks).syncOnce(), engine(db2, locks).syncOnce()]);
+    db2.close();
+    expect([r1.skipped, r2.skipped].filter(Boolean)).toHaveLength(1);
+    expect(server.calls.filter((c) => c.startsWith("sale:"))).toHaveLength(1);
+  });
+
+  it("checks every 30s while orders wait, sooner when a backoff ends, every 60s when idle", async () => {
+    const e = engine();
+    expect(await e.nextDelay()).toBe(IDLE_INTERVAL_MS);
+    await sell(addProduct([], "ep-butter", lineId));
+    expect(await e.nextDelay()).toBe(1_000); // due now: go again soon
+    server.loseNextResponse = true;
+    await e.syncOnce();
+    expect(await e.nextDelay()).toBe(2_000);
+    await db.outbox.where("status").equals("pending").modify({ nextRetryAt: clock + 120_000 });
+    expect(await e.nextDelay()).toBe(PENDING_INTERVAL_MS);
   });
 });

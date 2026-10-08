@@ -2,6 +2,7 @@ import type { SalePayload, Snapshot } from "../pos/types";
 import { KV, type CachedSnapshot, type OutboxOp, type PosDatabase } from "./db";
 import { isReflected, summarizeOutbox } from "./stock";
 import { applyDeviceState } from "./numbering";
+import { backoffDelay } from "./backoff";
 
 /** A failed network call. `permanent` = the server rejected the data (retrying won't help). */
 export class SyncError extends Error {
@@ -31,38 +32,59 @@ export interface SyncTransport {
 export type ClaimedDevice = { device_id: string; device_code: string; label: string | null };
 
 export type SyncState = {
-  syncing: boolean;
+  /** Confirmed by a health check, not just navigator.onLine */
   online: boolean;
+  syncing: boolean;
+  /** How many queue entries the current run is sending */
+  syncingCount: number;
   lastSyncAt: number | null;
   lastAttemptAt: number | null;
   lastError: string | null;
   consecutiveFailures: number;
+  /** Server clock minus this tablet's clock, from the last health check */
+  clockOffsetMs: number | null;
 };
 
-export type SyncResult = { ok: boolean; pushed: number; failedPermanently: number; error?: string };
+export type SyncResult = { ok: boolean; pushed: number; failedPermanently: number; skipped?: boolean; error?: string };
 
 const PRUNE_AFTER_MS = 6 * 60 * 60 * 1000;
-const BASE_INTERVAL_MS = 15_000;
-const MAX_BACKOFF_MS = 60_000;
+/** While anything is waiting: look again at least this often. */
+export const PENDING_INTERVAL_MS = 30_000;
+/** Nothing waiting: refresh the menu and stock this often. */
+export const IDLE_INTERVAL_MS = 60_000;
+const LOCK_NAME = "crumbclub-sync";
+
+type LockManagerLike = {
+  request<T>(name: string, options: { ifAvailable: boolean }, cb: (lock: unknown) => Promise<T>): Promise<T>;
+};
 
 /**
- * Pushes the outbox to Supabase in order, then pulls a fresh snapshot.
- * - Every op carries a client id, so a retry after a lost response is a no-op server side.
- * - A transient failure (offline, timeout, 5xx) stops the push; the op stays pending.
- * - A permanent rejection marks the op "failed" (kept, shown to the owner, included in backups).
+ * Pushes the queue to Supabase in creation order, then pulls a fresh snapshot.
+ *  - Every entry carries a client id, so re-sending after a lost response is a no-op on the server.
+ *  - States: pending, syncing (being sent), synced, failed (rejected; kept and shown for review).
+ *  - A retryable failure (offline, timeout, 5xx, 429) keeps the entry pending with exponential
+ *    backoff and stops the push, so later entries never overtake it.
+ *  - Only one sync runs at a time across tabs (Web Locks), and connectivity is confirmed with
+ *    a health check instead of trusting navigator.onLine.
  */
 export class SyncEngine {
   private running: Promise<SyncResult> | null = null;
   private listeners = new Set<(s: SyncState) => void>();
   private timer: ReturnType<typeof setTimeout> | null = null;
   private stopped = true;
-  state: SyncState = { syncing: false, online: true, lastSyncAt: null, lastAttemptAt: null, lastError: null, consecutiveFailures: 0 };
+  state: SyncState = {
+    online: true, syncing: false, syncingCount: 0, lastSyncAt: null, lastAttemptAt: null, lastError: null,
+    consecutiveFailures: 0, clockOffsetMs: null,
+  };
 
   constructor(
     private readonly db: PosDatabase,
     private readonly transport: SyncTransport,
     private readonly now: () => number = () => Date.now(),
     private readonly isOnline: () => boolean = () => (typeof navigator === "undefined" ? true : navigator.onLine),
+    private readonly random: () => number = Math.random,
+    private readonly locks: LockManagerLike | null =
+      typeof navigator !== "undefined" && "locks" in navigator ? (navigator.locks as unknown as LockManagerLike) : null,
   ) {}
 
   subscribe(fn: (s: SyncState) => void): () => void {
@@ -76,12 +98,21 @@ export class SyncEngine {
     for (const fn of this.listeners) fn(this.state);
   }
 
-  /** Runs one push + pull cycle. Concurrent callers share the same run. */
+  /** Runs one push + pull cycle. Concurrent callers in this tab share the same run. */
   syncOnce(): Promise<SyncResult> {
     if (!this.running) {
-      this.running = this.run().finally(() => { this.running = null; });
+      this.running = this.withLock().finally(() => { this.running = null; });
     }
     return this.running;
+  }
+
+  /** Another tab already syncing? Then skip; it will send everything. */
+  private withLock(): Promise<SyncResult> {
+    if (!this.locks) return this.run();
+    return this.locks.request(LOCK_NAME, { ifAvailable: true }, async (lock) => {
+      if (!lock) return { ok: true, pushed: 0, failedPermanently: 0, skipped: true };
+      return this.run();
+    });
   }
 
   /** Next value of the persisted monotonic sync counter. */
@@ -91,33 +122,58 @@ export class SyncEngine {
     return next;
   }
 
+  /** Confirms we can actually reach the server (navigator.onLine can't be trusted alone). */
+  private async checkConnection(): Promise<boolean> {
+    if (!this.isOnline()) return false;
+    try {
+      const before = this.now();
+      const { server_time } = await this.transport.ping();
+      const after = this.now();
+      const offset = Date.parse(server_time) - Math.round((before + after) / 2);
+      if (Number.isFinite(offset)) {
+        await this.db.setKv(KV.clockOffsetMs, offset);
+        this.setState({ clockOffsetMs: offset });
+      }
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
   private async run(): Promise<SyncResult> {
-    const online = this.isOnline();
-    this.setState({ online, lastAttemptAt: this.now() });
+    this.setState({ lastAttemptAt: this.now() });
+    // We hold the lock, so anything still marked "syncing" was interrupted (tab closed, crash).
+    await this.db.outbox.where("status").equals("syncing").modify({ status: "pending" });
+
+    const online = await this.checkConnection();
+    this.setState({ online });
     if (!online) return { ok: false, pushed: 0, failedPermanently: 0, error: "offline" };
 
-    this.setState({ syncing: true });
     let pushed = 0;
     let failedPermanently = 0;
     try {
       const pending = await this.db.outbox.where("status").equals("pending").sortBy("seq");
+      this.setState({ syncing: true, syncingCount: pending.length });
       for (const op of pending) {
+        // Keep creation order: an entry still backing off holds back the ones after it.
+        if (op.nextRetryAt && op.nextRetryAt > this.now()) break;
+        await this.db.outbox.update(op.seq!, { status: "syncing" });
         try {
           await this.send(op);
           const syncedAt = this.now();
           await this.db.transaction("rw", this.db.outbox, this.db.sales, this.db.kv, async () => {
             const ackSeq = await this.nextSeq();
-            await this.db.outbox.update(op.seq!, { status: "synced", syncedAt, ackSeq, lastError: undefined });
+            await this.db.outbox.update(op.seq!, { status: "synced", syncedAt, ackSeq, lastError: undefined, nextRetryAt: undefined });
             if (op.type === "sale") await this.db.sales.update(op.opId, { syncedAt: new Date(syncedAt).toISOString() });
           });
           pushed++;
+          this.setState({ syncingCount: Math.max(0, this.state.syncingCount - 1) });
         } catch (err) {
           const e = toSyncError(err);
-          await this.db.outbox.update(op.seq!, {
-            attempts: op.attempts + 1,
-            lastError: e.message,
-            ...(e.permanent ? { status: "failed" as const } : {}),
-          });
+          const attempts = op.attempts + 1;
+          await this.db.outbox.update(op.seq!, e.permanent
+            ? { status: "failed", attempts, lastError: e.message, nextRetryAt: undefined }
+            : { status: "pending", attempts, lastError: e.message, nextRetryAt: this.now() + backoffDelay(attempts, this.random) });
           if (!e.permanent) throw e;
           failedPermanently++;
         }
@@ -128,16 +184,16 @@ export class SyncEngine {
       await this.prune();
       const t = this.now();
       await this.db.setKv(KV.lastSyncAt, t);
-      this.setState({ syncing: false, online: true, lastSyncAt: t, lastError: null, consecutiveFailures: 0 });
+      this.setState({ syncing: false, syncingCount: 0, online: true, lastSyncAt: t, lastError: null, consecutiveFailures: 0 });
       return { ok: true, pushed, failedPermanently };
     } catch (err) {
       const e = toSyncError(err);
-      this.setState({ syncing: false, lastError: e.message, consecutiveFailures: this.state.consecutiveFailures + 1 });
+      this.setState({ syncing: false, syncingCount: 0, lastError: e.message, consecutiveFailures: this.state.consecutiveFailures + 1 });
       return { ok: false, pushed, failedPermanently, error: e.message };
     }
   }
 
-  private async send(op: OutboxOp) {
+  private async send(op: OutboxOp): Promise<void> {
     switch (op.type) {
       case "sale":
         return this.transport.recordSale(op.payload as SalePayload);
@@ -149,6 +205,8 @@ export class SyncEngine {
         return this.transport.setAvailability(op.payload as Parameters<SyncTransport["setAvailability"]>[0]);
       case "pin_use":
         return this.transport.logPinUse(op.payload as PinUsePayload);
+      default:
+        throw new SyncError(`This app version can't send "${op.type}" entries. Update the app.`, true);
     }
   }
 
@@ -162,7 +220,7 @@ export class SyncEngine {
     if (!snapshot.event && cached?.snapshot.event) {
       snapshot = await this.transport.fetchSnapshot(cached.snapshot.event.id);
     }
-    await this.db.setKv<CachedSnapshot>(KV.snapshot, { snapshot, pulledAt, pullSeq });
+    await this.db.setKv<CachedSnapshot>(KV.snapshot, { snapshot, pulledAt, pullSeq, menuVersion: menuVersion(snapshot) });
     await applyDeviceState(this.db, snapshot.device, this.now());
 
     const voided = new Set(snapshot.voided_transaction_ids ?? []);
@@ -197,7 +255,18 @@ export class SyncEngine {
       .delete();
   }
 
-  /** Background loop: every 15 s, sooner when the connection returns, backing off on failures. */
+  /** "Retry now" on one entry (or all with no argument): clears backoff and failed state, then syncs. */
+  async retryNow(seq?: number): Promise<SyncResult> {
+    const reset = { status: "pending" as const, nextRetryAt: undefined };
+    if (seq === undefined) {
+      await this.db.outbox.where("status").anyOf(["pending", "failed"]).modify(reset);
+    } else {
+      await this.db.outbox.update(seq, reset);
+    }
+    return this.syncOnce();
+  }
+
+  /** Background loop. See scheduleNext() for the timing. */
   start() {
     if (!this.stopped) return;
     this.stopped = false;
@@ -224,25 +293,47 @@ export class SyncEngine {
     this.schedule(300);
   }
 
+  /** When to look again: every 30s while anything waits (sooner when a backoff ends), else every 60s. */
+  async nextDelay(): Promise<number> {
+    const pending = await this.db.outbox.where("status").equals("pending").toArray();
+    if (pending.length === 0) return IDLE_INTERVAL_MS;
+    const now = this.now();
+    const head = pending.reduce((a, b) => ((a.seq ?? 0) < (b.seq ?? 0) ? a : b));
+    const due = Math.max(1_000, (head.nextRetryAt ?? now) - now);
+    return Math.min(PENDING_INTERVAL_MS, due);
+  }
+
   private schedule(delay: number) {
     if (this.stopped) return;
     if (this.timer) clearTimeout(this.timer);
     this.timer = setTimeout(async () => {
       await this.syncOnce();
-      const failures = this.state.consecutiveFailures;
-      const next = failures === 0 ? BASE_INTERVAL_MS : Math.min(MAX_BACKOFF_MS, 2000 * 2 ** (failures - 1));
-      this.schedule(next);
+      this.schedule(await this.nextDelay().catch(() => PENDING_INTERVAL_MS));
     }, delay);
   }
 
-  private onOnline = () => {
-    this.setState({ online: true, consecutiveFailures: 0 });
+  /** The connection came back: don't wait out old backoffs, send now. */
+  private onOnline = async () => {
+    this.setState({ consecutiveFailures: 0 });
+    await this.db.outbox.where("status").equals("pending").modify({ nextRetryAt: undefined }).catch(() => {});
     this.schedule(0);
   };
   private onOffline = () => this.setState({ online: false });
   private onVisible = () => {
     if (document.visibilityState === "visible") this.schedule(0);
   };
+}
+
+/** Changes whenever the sellable menu or prices change. */
+export function menuVersion(snapshot: Snapshot): string {
+  const menu = JSON.stringify([
+    snapshot.event?.id ?? null,
+    (snapshot.products ?? []).map((p) => [p.event_product_id, p.name, p.price_centavos, p.is_available, p.category]),
+    (snapshot.bundles ?? []).map((b) => [b.event_bundle_id, b.name, b.price_centavos, b.is_available]),
+  ]);
+  let h = 5381;
+  for (let i = 0; i < menu.length; i++) h = ((h << 5) + h + menu.charCodeAt(i)) | 0;
+  return (h >>> 0).toString(36);
 }
 
 export function toSyncError(err: unknown): SyncError {
