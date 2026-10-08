@@ -72,9 +72,15 @@ body {
 
 @utility badge { @apply inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-bold; }
 
+/* Shift reports and export summaries print on A4 (there is no receipt printer). */
+@page { size: A4; margin: 14mm 12mm; }
 @media print {
-  .no-print { display: none !important; }
-  body { background: white; }
+  .no-print, header.pos-header, nav, dialog::backdrop { display: none !important; }
+  html, body { background: white !important; color: black !important; }
+  .print-page { max-width: none !important; padding: 0 !important; }
+  .print-page section { break-inside: avoid; }
+  .card { border-color: #999 !important; }
+  a[href^="http"]::after { content: " (" attr(href) ")"; font-size: 0.8em; }
 }
 
 @keyframes tapflash {

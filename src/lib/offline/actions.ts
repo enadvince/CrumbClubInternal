@@ -1,6 +1,7 @@
 import { saleStockEffects } from "../pos/cart";
 import type { PaymentPhoto, SalePayload } from "../pos/types";
-import type { LocalRefund, LocalSale, OutboxOp, PosDatabase, VoidReasonCode } from "./db";
+import { KV, type Denominations, type DeviceInfo, type LocalDrawerMovement, type LocalRefund, type LocalSale, type LocalShift, type OutboxOp, type PosDatabase, type VoidReasonCode } from "./db";
+import type { Centavos } from "../money";
 import { lineNet, refundAmount, refundStockEffects } from "../pos/refund";
 import { uuidv7 } from "../uuid";
 import { VOID_REASONS } from "../pos/reasons";
@@ -20,9 +21,11 @@ export async function recordSaleLocally(
   meta: { staffName: string; summary: string; photo?: PaymentPhoto | null; businessId?: string },
   now = Date.now(),
 ): Promise<LocalSale> {
-  return db.transaction("rw", [db.sales, db.outbox, db.kv, db.photos], async () => {
+  return db.transaction("rw", [db.sales, db.outbox, db.kv, db.photos, db.shifts], async () => {
     const { orderNumber, deviceId } = await takeOrderNumber(db, now);
-    const sale: SalePayload = { ...draft, order_number: orderNumber, device_id: deviceId };
+    // Every order belongs to this tablet's open shift (the POS won't sell without one).
+    const shift = await openShiftFor(db, draft.event_id);
+    const sale: SalePayload = { ...draft, order_number: orderNumber, device_id: deviceId, shift_id: shift?.id ?? null };
     const local = localSaleFrom(sale, meta);
     const op: OutboxOp = {
       opId: sale.id,
@@ -34,6 +37,7 @@ export async function recordSaleLocally(
       status: "pending",
       attempts: 0,
       display: { orderNumber, amount: sale.total_centavos, label: meta.summary },
+      shiftId: shift?.id,
     };
     await db.sales.add(local);
     await db.outbox.add(op);
@@ -72,6 +76,7 @@ function localSaleFrom(sale: SalePayload, meta: { staffName: string; summary: st
     syncedAt: null,
     payload: sale,
     paymentStatus: sale.payment_method === "cash" ? "paid" : "awaiting_verification",
+    shiftId: sale.shift_id ?? null,
   };
 }
 
@@ -242,7 +247,8 @@ export async function voidOrderLocally(
       createdAt: now,
       status: "pending",
       attempts: 0,
-      shiftId: args.shiftId ?? undefined,
+      // A void changes the figures of the shift the order was taken in.
+      shiftId: sale.shiftId ?? args.shiftId ?? undefined,
       display: { orderNumber: sale.orderNumber, amount: sale.total, label: `Void: ${label}` },
     });
     await db.outbox.add(auditOp({
@@ -324,4 +330,146 @@ export async function refundLocally(db: PosDatabase, req: RefundRequest, now = D
     }, sale.eventId, now + 1));
     return refund;
   });
+}
+
+// ---------------------------------------------------------------------------
+// Shifts and the cash drawer (one open shift per tablet). All offline.
+// ---------------------------------------------------------------------------
+
+export async function openShiftFor(db: PosDatabase, eventId: string): Promise<LocalShift | undefined> {
+  return db.shifts.where("status").equals("open").filter((s) => s.eventId === eventId).first();
+}
+
+export async function openShiftLocally(
+  db: PosDatabase,
+  args: { eventId: string; staffId: string; staffName: string; openingFloat: Centavos; openingDenoms: Denominations | null },
+  now = Date.now(),
+): Promise<LocalShift> {
+  if (!Number.isInteger(args.openingFloat) || args.openingFloat < 0) throw new ActionError("Enter the opening float");
+  return db.transaction("rw", [db.shifts, db.outbox, db.kv], async () => {
+    const device = await db.getKv<DeviceInfo>(KV.device);
+    if (!device?.deviceId) throw new ActionError("This tablet isn't registered yet");
+    const open = await db.shifts.where("status").equals("open").first();
+    if (open) throw new ActionError("A shift is already open on this tablet. Close it first.");
+    const shift: LocalShift = {
+      id: uuidv7(now), eventId: args.eventId, deviceId: device.deviceId, status: "open", openedAt: new Date(now).toISOString(),
+      openedByStaffId: args.staffId, openedByName: args.staffName, openingFloat: args.openingFloat, openingDenoms: args.openingDenoms,
+    };
+    await db.shifts.add(shift);
+    await db.outbox.add({
+      opId: `shift_open:${shift.id}`,
+      type: "shift_open",
+      eventId: args.eventId,
+      payload: {
+        id: shift.id, event_id: args.eventId, opened_at: shift.openedAt, opened_by_staff_id: args.staffId,
+        opening_float_centavos: args.openingFloat, opening_denoms: args.openingDenoms,
+      },
+      effects: [],
+      createdAt: now,
+      status: "pending",
+      attempts: 0,
+      shiftId: shift.id,
+      display: { amount: args.openingFloat, label: "Shift opened" },
+    });
+    return shift;
+  });
+}
+
+/** Cash in (e.g. extra float) or cash out (e.g. supplier pay-out, needs an owner). */
+export async function drawerMovementLocally(
+  db: PosDatabase,
+  args: { shiftId: string; kind: "cash_in" | "cash_out"; amount: Centavos; reason: string; staffId: string; staffName: string; approverId?: string | null },
+  now = Date.now(),
+): Promise<LocalDrawerMovement> {
+  if (!Number.isInteger(args.amount) || args.amount <= 0) throw new ActionError("Enter an amount");
+  if (!args.reason.trim()) throw new ActionError("Enter a reason");
+  if (args.kind === "cash_out" && !args.approverId) throw new ActionError("Cash out needs an owner PIN");
+  return db.transaction("rw", [db.shifts, db.drawer, db.outbox], async () => {
+    const shift = await db.shifts.get(args.shiftId);
+    if (!shift || shift.status !== "open") throw new ActionError("No open shift");
+    const m: LocalDrawerMovement = {
+      id: uuidv7(now), shiftId: shift.id, kind: args.kind, amount: args.amount, reason: args.reason.trim(),
+      staffId: args.staffId, staffName: args.staffName, approvedByStaffId: args.approverId ?? null, createdAt: new Date(now).toISOString(),
+    };
+    await db.drawer.add(m);
+    await db.outbox.add({
+      opId: `drawer:${m.id}`,
+      type: "drawer",
+      eventId: shift.eventId,
+      payload: {
+        id: m.id, shift_id: shift.id, kind: m.kind, amount_centavos: m.amount, reason: m.reason, staff_id: m.staffId,
+        approved_by_staff_id: m.approvedByStaffId, created_at: m.createdAt,
+      },
+      effects: [],
+      createdAt: now,
+      status: "pending",
+      attempts: 0,
+      shiftId: shift.id,
+      display: { amount: m.amount, label: m.kind === "cash_in" ? `Cash in: ${m.reason}` : `Cash out: ${m.reason}` },
+    });
+    await db.outbox.add(auditOp({
+      action: m.kind, amount_centavos: m.amount, reason: m.reason, cashier_staff_id: m.staffId,
+      manager_staff_id: m.approvedByStaffId, shift_id: shift.id,
+    }, shift.eventId, now + 1));
+    return m;
+  });
+}
+
+/**
+ * Closes the shift after a blind count. Allowed offline and with orders still unsynced:
+ * the report is then provisional until they sync.
+ */
+export async function closeShiftLocally(
+  db: PosDatabase,
+  args: {
+    shiftId: string; staffId: string; staffName: string; countedCash: Centavos; countedDenoms: Denominations | null;
+    expectedCash: Centavos; threshold: Centavos; varianceNote?: string; approverId?: string | null; approverName?: string | null;
+  },
+  now = Date.now(),
+): Promise<LocalShift> {
+  const variance = args.countedCash - args.expectedCash;
+  const needsApproval = Math.abs(variance) > args.threshold;
+  if (needsApproval && !args.approverId) throw new ActionError("This variance needs an owner PIN");
+  if (needsApproval && !args.varianceNote?.trim()) throw new ActionError("Add a note explaining the variance");
+  return db.transaction("rw", [db.shifts, db.outbox], async () => {
+    const shift = await db.shifts.get(args.shiftId);
+    if (!shift || shift.status !== "open") throw new ActionError("No open shift to close");
+    const closedAt = new Date(now).toISOString();
+    const patch: Partial<LocalShift> = {
+      status: "closed", closedAt, closedByStaffId: args.staffId, closedByName: args.staffName, countedCash: args.countedCash,
+      countedDenoms: args.countedDenoms, expectedCash: args.expectedCash, variance, varianceNote: args.varianceNote?.trim() || null,
+      approvedByStaffId: args.approverId ?? null, approvedByName: args.approverName ?? null,
+    };
+    await db.shifts.update(shift.id, patch);
+    await db.outbox.add({
+      opId: `shift_close:${shift.id}`,
+      type: "shift_close",
+      eventId: shift.eventId,
+      payload: {
+        id: shift.id, closed_at: closedAt, closed_by_staff_id: args.staffId, counted_cash_centavos: args.countedCash,
+        counted_denoms: args.countedDenoms, expected_cash_centavos: args.expectedCash, variance_note: patch.varianceNote,
+        approved_by_staff_id: args.approverId ?? null,
+      },
+      effects: [],
+      createdAt: now,
+      status: "pending",
+      attempts: 0,
+      shiftId: shift.id,
+      display: { amount: args.countedCash, label: "Shift closed" },
+    });
+    if (needsApproval) {
+      await db.outbox.add(auditOp({
+        action: "shift_close_variance", amount_centavos: variance, note: patch.varianceNote, cashier_staff_id: args.staffId,
+        manager_staff_id: args.approverId ?? null, shift_id: shift.id,
+      }, shift.eventId, now + 1));
+    }
+    return { ...shift, ...patch } as LocalShift;
+  });
+}
+
+/** Entries for a shift still waiting for the server (for the "Provisional" marker). */
+export async function unsyncedForShift(db: PosDatabase, shiftId: string): Promise<{ orders: number; other: number }> {
+  const ops = await db.outbox.where("shiftId").equals(shiftId).filter((o) => o.status !== "synced").toArray();
+  const orders = ops.filter((o) => o.type === "sale").length;
+  return { orders, other: ops.length - orders };
 }

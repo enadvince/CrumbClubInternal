@@ -35,6 +35,9 @@ export interface SyncTransport {
   refundOrder(payload: Record<string, unknown>): Promise<void>;
   /** Appends an audit entry (log_audit RPC). Idempotent on its id. */
   logAudit(entry: Record<string, unknown>): Promise<void>;
+  openShift(payload: Record<string, unknown>): Promise<void>;
+  closeShift(payload: Record<string, unknown>): Promise<void>;
+  drawerMovement(payload: Record<string, unknown>): Promise<void>;
 }
 
 export type PhotoUpload = { transactionId: string; businessId: string; bytes: ArrayBuffer; mime: string };
@@ -228,6 +231,12 @@ export class SyncEngine {
         return this.transport.refundOrder(op.payload as Record<string, unknown>);
       case "audit":
         return this.transport.logAudit(op.payload as Record<string, unknown>);
+      case "shift_open":
+        return this.transport.openShift(op.payload as Record<string, unknown>);
+      case "shift_close":
+        return this.transport.closeShift(op.payload as Record<string, unknown>);
+      case "drawer":
+        return this.transport.drawerMovement(op.payload as Record<string, unknown>);
       default:
         throw new SyncError(`This app version can't send "${op.type}" entries. Update the app.`, true);
     }

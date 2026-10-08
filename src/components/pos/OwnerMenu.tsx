@@ -9,13 +9,14 @@ import { backupCsv, backupJson } from "@/lib/offline/backup";
 import type { SyncEngine, SyncState } from "@/lib/offline/sync";
 import type { UnsyncedSummary } from "@/lib/offline/stock";
 import { downloadText } from "@/lib/csv";
+import { formatPeso } from "@/lib/money";
 import type { Menu } from "@/lib/pos/types";
 import { formatDateTime, timeAgo } from "@/lib/time";
 
-type Tab = "sync" | "stock" | "tablet";
+type Tab = "sync" | "stock" | "shifts" | "tablet";
 
 export function OwnerMenu({
-  open, onClose, engine, state, summary, menu, ownerStaffId, onUnpair, onOwnerView,
+  open, onClose, engine, state, summary, menu, ownerStaffId, onUnpair, onOwnerView, onViewShift,
 }: {
   open: boolean;
   onClose: () => void;
@@ -27,6 +28,8 @@ export function OwnerMenu({
   onUnpair: () => Promise<void>;
   /** Switches the tablet to the owner pages (dashboard). Absent in demo mode. */
   onOwnerView?: () => void;
+  /** Opens a shift report full screen */
+  onViewShift: (shiftId: string) => void;
 }) {
   const [tab, setTab] = useState<Tab>("sync");
   const [message, setMessage] = useState<string | null>(null);
@@ -61,7 +64,7 @@ export function OwnerMenu({
         </button>
       )}
       <div className="mb-4 flex gap-2" role="tablist">
-        {([["sync", "Sync & backup"], ["stock", "Stock"], ["tablet", "Tablet"]] as const).map(([t, label]) => (
+        {([["sync", "Sync & backup"], ["stock", "Stock"], ["shifts", "Shifts"], ["tablet", "Tablet"]] as const).map(([t, label]) => (
           <button key={t} role="tab" aria-selected={tab === t} onClick={() => { setTab(t); setMessage(null); }}
             className={`btn flex-1 border-2 ${tab === t ? "border-caramel bg-crust" : "border-crust-dark bg-paper"}`}>{label}</button>
         ))}
@@ -110,6 +113,8 @@ export function OwnerMenu({
 
       {tab === "stock" && (menu ? <StockTab menu={menu} ownerStaffId={ownerStaffId} onDone={(m) => { setMessage(m); engine?.requestSync(); }} /> : <p>No live event.</p>)}
 
+      {tab === "shifts" && <ShiftsTab onView={onViewShift} />}
+
       {tab === "tablet" && (
         <div className="space-y-4">
           <p className="text-ink-soft">Unpairing signs this tablet out and clears its local data. You&apos;ll need an owner login to set it up again.</p>
@@ -136,6 +141,26 @@ export function OwnerMenu({
         </div>
       )}
     </Modal>
+  );
+}
+
+/** Shifts on this tablet, newest first, each with its report. */
+function ShiftsTab({ onView }: { onView: (shiftId: string) => void }) {
+  const shifts = useLiveQuery(() => getDb().shifts.orderBy("openedAt").reverse().limit(30).toArray(), [], []);
+  if (shifts.length === 0) return <p className="text-ink-soft">No shifts on this tablet yet.</p>;
+  return (
+    <ul className="divide-y divide-crust-dark rounded-xl border border-crust-dark">
+      {shifts.map((s) => (
+        <li key={s.id} className="flex flex-wrap items-center gap-3 p-3">
+          <span className="min-w-40 flex-1">
+            <span className="font-semibold">{formatDateTime(s.openedAt)}</span>
+            <span className="block text-xs text-ink-soft">{s.openedByName}{s.closedAt ? ` · closed ${formatDateTime(s.closedAt)}` : " · open"}</span>
+          </span>
+          {s.variance != null && <span className={`badge ${s.variance === 0 ? "bg-ok-light text-ok" : "bg-warn-light text-warn"}`}>Variance {formatPeso(s.variance, { sign: true })}</span>}
+          <button className="btn-secondary min-h-11 text-sm" onClick={() => onView(s.id)}>View report</button>
+        </li>
+      ))}
+    </ul>
   );
 }
 

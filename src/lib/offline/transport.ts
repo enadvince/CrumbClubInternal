@@ -94,6 +94,15 @@ export function supabaseTransport(supabase: SupabaseClient, appVersion = "1"): S
     async logAudit(entry) {
       await rpc("log_audit", { p_entry: entry }, "Audit log");
     },
+    async openShift(payload) {
+      await rpc("open_shift", { p: payload }, "Open shift");
+    },
+    async closeShift(payload) {
+      await rpc("close_shift", { p: payload }, "Close shift");
+    },
+    async drawerMovement(payload) {
+      await rpc("record_drawer_movement", { p: payload }, "Drawer movement");
+    },
     async heartbeat(count, oldest) {
       await rpc("device_heartbeat", { p_unsynced_count: count, p_oldest_unsynced_at: oldest, p_app_version: appVersion }, "Heartbeat");
     },

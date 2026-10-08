@@ -3,7 +3,7 @@ import type { Centavos } from "../money";
 /** Shape returned by the pos_snapshot() RPC and cached on the tablet. */
 export type Snapshot = {
   server_time: string;
-  business: { id: string; name: string; timezone: string };
+  business: { id: string; name: string; timezone: string; variance_threshold_centavos?: number };
   staff: SnapshotStaff[];
   recent_qr_refs: string[];
   event: SnapshotEvent | null;
@@ -123,6 +123,8 @@ export type SalePayload = {
   /** {DEVICE_CODE}-{YYMMDD}-{SEQ}. Absent on sales made before order numbering. */
   order_number?: string;
   device_id?: string | null;
+  /** The tablet's open shift when the order was taken */
+  shift_id?: string | null;
   event_id: string;
   staff_id: string;
   client_created_at: string;

@@ -1,7 +1,11 @@
 import "fake-indexeddb/auto";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { KV, PosDatabase, type CachedSnapshot } from "./db";
-import { recordSaleLocally, undoSale, adjustStockLocally, isDuplicateQrRef, logPinUseLocally, UndoError, voidOrderLocally, refundLocally, ActionError } from "./actions";
+import {
+  recordSaleLocally, undoSale, adjustStockLocally, isDuplicateQrRef, logPinUseLocally, UndoError, voidOrderLocally, refundLocally, ActionError,
+  openShiftLocally, drawerMovementLocally, closeShiftLocally, unsyncedForShift,
+} from "./actions";
+import { buildShiftReport } from "../pos/shift";
 import { localStock, summarizeOutbox } from "./stock";
 import { IDLE_INTERVAL_MS, PENDING_INTERVAL_MS, SyncEngine, SyncError, type PinUsePayload, type SyncTransport } from "./sync";
 import { addBundle, addProduct, buildMenu, buildSale, priceCart } from "../pos/cart";
@@ -72,6 +76,23 @@ class FakeServer implements SyncTransport {
   async logAudit(e: Record<string, unknown>) {
     this.guard(`audit:${e.action}`);
     if (!this.audits.has(e.id as string)) this.audits.set(e.id as string, e);
+  }
+  shifts = new Map<string, Record<string, unknown>>();
+  movements = new Map<string, Record<string, unknown>>();
+  async openShift(p: Record<string, unknown>) {
+    this.guard("shift_open");
+    if (!this.shifts.has(p.id as string)) this.shifts.set(p.id as string, { ...p, status: "open" });
+  }
+  async closeShift(p: Record<string, unknown>) {
+    this.guard("shift_close");
+    const s = this.shifts.get(p.id as string);
+    if (!s) throw new SyncError("shift not found; it must sync first", true);
+    Object.assign(s, p, { status: "closed" });
+  }
+  async drawerMovement(p: Record<string, unknown>) {
+    this.guard("drawer");
+    if (!this.shifts.has(p.shift_id as string)) throw new SyncError("shift not found; it must sync first", true);
+    if (!this.movements.has(p.id as string)) this.movements.set(p.id as string, p);
   }
   async claimDeviceCode() { this.guard("claim"); return { device_id: "device-1", device_code: "T1", label: null }; }
   /** Health check fails while the API is down even if the device thinks it's online */
@@ -544,5 +565,54 @@ describe("owner-approved voids and refunds offline", () => {
   it("an 'Other' void needs a note", async () => {
     const a = await sell(addProduct([], "ep-butter", lineId));
     await expect(voidOrderLocally(db, { saleId: a.id, reasonCode: "other", cashierId: "s", approverId: "o" })).rejects.toThrow(/note/);
+  });
+});
+
+describe("a full shift offline", () => {
+  it("open, sell, cash out, refund, close: provisional until synced, then final and on the server", async () => {
+    online = false;
+    const shift = await openShiftLocally(db, { eventId: "event-1", staffId: "staff-1", staffName: "Staff One", openingFloat: 100000, openingDenoms: { b1000: 1 } }, clock);
+    await expect(openShiftLocally(db, { eventId: "event-1", staffId: "staff-1", staffName: "Staff One", openingFloat: 0, openingDenoms: null }, clock)).rejects.toThrow(/already open/);
+    const a = await sell(addProduct(addProduct([], "ep-butter", lineId), "ep-butter", lineId)); // cash 19000
+    await sell(addProduct([], "ep-ube", lineId), { qr: "5012" }); // QR 12000
+    const c = await sell(addProduct([], "ep-choc", lineId)); // cash 11000
+    expect((await db.sales.get(a.id))!.shiftId).toBe(shift.id);
+    await expect(drawerMovementLocally(db, { shiftId: shift.id, kind: "cash_out", amount: 5000, reason: "ice", staffId: "staff-1", staffName: "Staff One" })).rejects.toThrow(/owner/);
+    await drawerMovementLocally(db, { shiftId: shift.id, kind: "cash_out", amount: 5000, reason: "ice", staffId: "staff-1", staffName: "Staff One", approverId: "staff-owner" }, clock);
+    await refundLocally(db, { saleId: a.id, kind: "refund", lines: [{ lineId: a.lines[0].id, quantity: 1 }], method: "cash", reasonCode: "changed_mind", cashierId: "staff-1", approverId: "staff-owner", shiftId: shift.id }, clock);
+    await voidOrderLocally(db, { saleId: c.id, reasonCode: "wrong_item", cashierId: "staff-1", approverId: "staff-owner", shiftId: shift.id }, clock);
+
+    const data = async () => ({
+      sales: await db.sales.toArray(), refunds: await db.refunds.toArray(), drawer: await db.drawer.toArray(),
+      unsynced: await unsyncedForShift(db, shift.id),
+    });
+    let report = buildShiftReport((await db.shifts.get(shift.id))!, await data());
+    // 100000 float + 19000 cash − 9500 refund − 5000 out = 104500
+    expect(report.expectedCash).toBe(104500);
+    expect(report).toMatchObject({ orders: 2, voids: { count: 1, total: 11000 }, refunds: { count: 1, total: 9500, cash: 9500 }, netSales: 21500 });
+    expect(report.qrAwaiting).toEqual({ count: 1, total: 12000 });
+
+    // Blind count ₱100 short: needs an owner and a note.
+    await expect(closeShiftLocally(db, { shiftId: shift.id, staffId: "staff-1", staffName: "Staff One", countedCash: 94500, countedDenoms: null, expectedCash: report.expectedCash, threshold: 5000 })).rejects.toThrow(/owner PIN/);
+    await closeShiftLocally(db, {
+      shiftId: shift.id, staffId: "staff-1", staffName: "Staff One", countedCash: 94500, countedDenoms: null, expectedCash: report.expectedCash,
+      threshold: 5000, varianceNote: "short change", approverId: "staff-owner", approverName: "Owner",
+    }, clock);
+    report = buildShiftReport((await db.shifts.get(shift.id))!, await data());
+    expect(report.variance).toBe(-10000);
+    expect(report.unsynced.orders).toBe(3); // provisional
+    expect(report.unsynced.other).toBeGreaterThan(0);
+
+    online = true;
+    await engine().syncOnce();
+    report = buildShiftReport((await db.shifts.get(shift.id))!, await data());
+    expect(report.unsynced).toEqual({ orders: 0, other: 0 }); // final
+    expect(server.shifts.get(shift.id)).toMatchObject({ status: "closed", counted_cash_centavos: 94500, expected_cash_centavos: 104500 });
+    expect(server.movements.size).toBe(1);
+    // Every order went up with its shift, in order: shift opened before its first sale.
+    const firstShift = server.calls.indexOf("shift_open");
+    const firstSale = server.calls.findIndex((c) => c.startsWith("sale:"));
+    expect(firstShift).toBeLessThan(firstSale);
+    expect([...server.sales.values()].every((s) => s.shift_id === shift.id)).toBe(true);
   });
 });

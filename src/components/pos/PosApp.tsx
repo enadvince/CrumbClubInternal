@@ -11,7 +11,8 @@ import { uuidv7 } from "@/lib/uuid";
 import { supabaseTransport } from "@/lib/offline/transport";
 import { demoTransport, isPosDemo } from "@/lib/offline/demoTransport";
 import { localAvailability, localStock, summarizeOutbox } from "@/lib/offline/stock";
-import { isDuplicateQrRef, logPinUseLocally, recordSaleLocally, undoSale, UNDO_WINDOW_MS } from "@/lib/offline/actions";
+import { isDuplicateQrRef, logPinUseLocally, openShiftFor, recordSaleLocally, undoSale, UNDO_WINDOW_MS } from "@/lib/offline/actions";
+import { DEFAULT_VARIANCE_THRESHOLD } from "@/lib/pos/shift";
 import {
   addBundle, addProduct, addWouldOversell, buildMenu, buildSale, bundleState, canIncrement, changeQuantity, incrementWouldOversell,
   isTracked, priceCart, productState, pruneCart, remainingStock,
@@ -28,6 +29,7 @@ import { Modal } from "@/components/Modal";
 import { PinPad } from "./PinPad";
 import { OwnerPinGate } from "./OwnerPinGate";
 import { OrderHistory } from "./OrderHistory";
+import { OpenShiftScreen, ShiftDrawerPanel, ShiftReportPage } from "./Shift";
 import { ItemCard } from "./ItemCard";
 import { CartPanel } from "./CartPanel";
 import { MixPicker } from "./MixPicker";
@@ -71,6 +73,8 @@ export function PosApp() {
   const [showShift, setShowShift] = useState(false);
   const [showSync, setShowSync] = useState(false);
   const [showOrders, setShowOrders] = useState(false);
+  const [showDrawer, setShowDrawer] = useState(false);
+  const [reportShiftId, setReportShiftId] = useState<string | null>(null);
   const [ownerGate, setOwnerGate] = useState(false);
   // pin is kept only while the menu is open, so "Owner dashboard" doesn't ask for it twice.
   const [ownerMenu, setOwnerMenu] = useState<{ staffId: string; pin?: string } | null>(null);
@@ -166,6 +170,9 @@ export function PosApp() {
   const currentStaff = activeStaff?.value ?? null;
   const event = snapshot?.event ?? null;
   const sellable = !!menu && event?.status === "live";
+  const openShift = useLiveQuery(async () => ({ value: event ? (await openShiftFor(db, event.id)) ?? null : null }), [event?.id]);
+  const shift = openShift?.value ?? null;
+  const varianceThreshold = snapshot?.business.variance_threshold_centavos ?? DEFAULT_VARIANCE_THRESHOLD;
 
   // Drop cart lines that no longer exist after a menu refresh.
   useEffect(() => {
@@ -355,7 +362,7 @@ export function PosApp() {
   }
 
   const header = (
-    <header className="flex flex-wrap items-center gap-3 border-b-2 border-crust-dark bg-paper px-4 py-2">
+    <header className="pos-header flex flex-wrap items-center gap-3 border-b-2 border-crust-dark bg-paper px-4 py-2">
       <Logo className="text-lg text-caramel" />
       <div className="min-w-0 flex-1">
         <p className="truncate font-bold">{event ? event.name : "No live event"}</p>
@@ -365,6 +372,7 @@ export function PosApp() {
       {currentStaff && (
         <>
           <button className="btn-secondary min-h-11 text-sm" onClick={() => setShowOrders(true)}>🧾 Orders</button>
+          {shift && <button className="btn-secondary min-h-11 text-sm" onClick={() => setShowDrawer(true)}>💵 Shift</button>}
           <button className="btn-secondary min-h-11 text-sm" onClick={() => setShowShift(true)}>My sales</button>
           <button className="btn-secondary min-h-11 text-sm" onClick={lock} aria-label={`Signed in as ${currentStaff.name}. Switch staff.`}>
             👤 {currentStaff.name} · Switch
@@ -426,7 +434,8 @@ export function PosApp() {
           />
         )}
       </Modal>
-      <OwnerMenu open={!!ownerMenu} onClose={() => setOwnerMenu(null)} engine={engineRef.current} state={syncState} summary={summary} menu={menu} ownerStaffId={ownerMenu?.staffId ?? ""} onUnpair={unpair} onOwnerView={isPosDemo() ? undefined : ownerViewFromMenu} />
+      <OwnerMenu open={!!ownerMenu} onClose={() => setOwnerMenu(null)} engine={engineRef.current} state={syncState} summary={summary} menu={menu} ownerStaffId={ownerMenu?.staffId ?? ""} onUnpair={unpair} onOwnerView={isPosDemo() ? undefined : ownerViewFromMenu}
+        onViewShift={(id) => { setOwnerMenu(null); setReportShiftId(id); }} />
     </>
   );
 
@@ -457,6 +466,28 @@ export function PosApp() {
           </p>
           <button className="btn-primary" onClick={() => engineRef.current?.syncOnce()}>↻ Check again</button>
         </Centered>
+        {overlays}
+      </main>
+    );
+  }
+
+  if (reportShiftId) {
+    return (
+      <main id="main" className="min-h-dvh">
+        <ShiftReportPage shiftId={reportShiftId} businessName={snapshot.business.name} deviceCode={device?.value?.deviceCode} onBack={() => setReportShiftId(null)} />
+      </main>
+    );
+  }
+
+  if (openShift === undefined) {
+    return <main className="flex min-h-dvh items-center justify-center"><Spinner label="Loading shift" /></main>;
+  }
+  if (!shift) {
+    return (
+      <main className="flex min-h-dvh flex-col">
+        {header}
+        <UnsyncedBanner summary={summary} now={now} onOpen={() => setShowSync(true)} />
+        <OpenShiftScreen eventId={menu.eventId} staff={currentStaff} onOpened={() => setNotice("Shift opened. Ready to sell.")} />
         {overlays}
       </main>
     );
@@ -620,9 +651,20 @@ export function PosApp() {
         eventId={menu.eventId}
         staff={staff}
         cashierId={currentStaff.id}
-        shiftId={null}
+        shiftId={shift?.id ?? null}
         online={syncState.online}
         onChanged={(m) => { setNotice(m); engineRef.current?.requestSync(); }}
+      />
+      <ShiftDrawerPanel
+        open={showDrawer}
+        onClose={() => setShowDrawer(false)}
+        shiftId={shift.id}
+        staff={staff}
+        cashier={currentStaff}
+        threshold={varianceThreshold}
+        eventId={menu.eventId}
+        onChanged={(m) => { setNotice(m); engineRef.current?.requestSync(); }}
+        onClosed={(id) => { setShowDrawer(false); setReportShiftId(id); engineRef.current?.requestSync(); }}
       />
       <ShiftPanel open={showShift} onClose={() => setShowShift(false)} eventId={menu.eventId} staffId={currentStaff.id} staffName={currentStaff.name} />
       {overlays}

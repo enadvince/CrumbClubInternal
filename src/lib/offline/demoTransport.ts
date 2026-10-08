@@ -100,6 +100,7 @@ export function demoTransport(): SyncTransport {
       snap.voided_transaction_ids = Object.entries(s.sales).filter(([, v]) => v.status === "voided").map(([k]) => k);
       snap.recent_qr_refs = Object.values(s.sales).map((v) => v.qr).filter((r): r is string => !!r);
       snap.device = { id: "demo-device", code: "T1", label: "Demo tablet", order_counters: counters(s) };
+      snap.business = { ...snap.business, variance_threshold_centavos: 5000 };
       return snap;
     },
     async heartbeat() {},
@@ -128,6 +129,15 @@ export function demoTransport(): SyncTransport {
       save(s);
     },
     async logAudit() {
+      await guard();
+    },
+    async openShift() {
+      await guard();
+    },
+    async closeShift() {
+      await guard();
+    },
+    async drawerMovement() {
       await guard();
     },
     async uploadPaymentPhoto() {

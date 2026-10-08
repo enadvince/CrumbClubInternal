@@ -4,7 +4,19 @@ async function unlock(page: Page, pin = "1111") {
   await page.goto("/pos");
   await expect(page.getByRole("heading", { name: "Enter your PIN" })).toBeVisible({ timeout: 20_000 });
   for (const d of pin) await page.getByRole("button", { name: d, exact: true }).click();
+  await openShiftIfAsked(page);
   await expect(page.getByRole("tab", { name: /Individual Items/ })).toBeVisible();
+}
+
+/** A shift must be open before the first sale on a tablet. */
+async function openShiftIfAsked(page: Page) {
+  const open = page.getByRole("heading", { name: "Open shift" });
+  const tabs = page.getByRole("tab", { name: /Individual Items/ });
+  await expect(open.or(tabs)).toBeVisible({ timeout: 20_000 });
+  if (await open.isVisible()) {
+    await page.getByLabel("Opening float").fill("1000");
+    await page.getByRole("button", { name: /Open shift and start selling/ }).click();
+  }
 }
 
 async function sellOneUbeCash(page: Page) {
@@ -42,6 +54,7 @@ test("sells offline, shows unsynced count, syncs when back online", async ({ pag
   await expect(page.getByRole("tab", { name: /Individual Items/ })).toBeVisible({ timeout: 20_000 });
 
   await expect(page.getByRole("button", { name: /Sync status: All synced/ })).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByTestId("sync-pill")).toHaveAttribute("data-tone", "ok");
   await page.getByRole("tab", { name: /Individual Items/ }).click();
   // Server now has both sales; stock is not double-counted.
   await expect(page.getByRole("button", { name: /^Ube Croissant.*22 left/ })).toBeVisible();
@@ -194,7 +207,7 @@ test("void and refund from the order history need an owner PIN and keep the orde
   await refund.getByRole("button", { name: /owner PIN/ }).click();
   await enterPin(refund, "1234");
   await expect(orders.getByTestId("order-row").first()).toContainText("Refunded ₱120.00");
-  await page.keyboard.press("Escape");
+  await orders.getByRole("button", { name: "Close" }).click();
   // Both croissants are back in stock.
   await page.getByRole("tab", { name: /Individual Items/ }).click();
   await expect(page.getByRole("button", { name: /^Ube Croissant.*24 left/ })).toBeVisible();
@@ -207,4 +220,31 @@ test("five wrong owner PINs lock owner PIN entry for 5 minutes", async ({ page }
   for (let i = 0; i < 5; i++) await enterPin(gate, "9999");
   await expect(gate.getByText(/Too many wrong owner PINs. Try again in [45]:\d\d/)).toBeVisible();
   await expect(gate.getByRole("button", { name: "1", exact: true })).toBeDisabled();
+});
+
+test("close a shift offline with a ₱100 variance: owner PIN and note, provisional then final", async ({ page, context }) => {
+  await unlock(page); // opens the shift with a ₱1,000 float
+  await context.setOffline(true);
+  await page.evaluate(() => window.dispatchEvent(new Event("offline")));
+  await sellOneUbeCash(page); // ₱120 cash
+  await page.getByRole("button", { name: /💵 Shift/ }).click();
+  const panel = page.getByRole("dialog", { name: "Shift" });
+  await panel.getByRole("button", { name: "Close shift" }).click();
+  // Blind count: the expected amount is not shown before counting.
+  await expect(panel.getByText("₱1,120.00")).toHaveCount(0);
+  await panel.getByRole("radio", { name: "Enter total" }).click();
+  await panel.getByLabel("Counted cash").fill("1020"); // expected 1,120: ₱100 short
+  await panel.getByRole("button", { name: "Show expected" }).click();
+  await expect(panel.getByText("₱1,120.00")).toBeVisible();
+  await expect(panel.getByText(/more than ₱50.00/)).toBeVisible();
+  await panel.getByLabel("Note (required)").fill("gave wrong change");
+  await panel.getByRole("button", { name: /owner PIN/ }).click();
+  for (const d of "1234") await panel.getByRole("button", { name: d, exact: true }).click();
+  await page.getByRole("dialog", { name: "Close shift?" }).getByRole("button", { name: "Close shift" }).click();
+  await expect(page.getByRole("heading", { name: "Shift report" })).toBeVisible();
+  await expect(page.getByTestId("report-status")).toHaveText(/Provisional: 1 order not yet synced/);
+  await expect(page.getByText("−₱100.00").first()).toBeVisible();
+  await context.setOffline(false);
+  await page.evaluate(() => window.dispatchEvent(new Event("online")));
+  await expect(page.getByTestId("report-status")).toHaveText(/Final/, { timeout: 30_000 });
 });
