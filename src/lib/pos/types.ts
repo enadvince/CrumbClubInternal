@@ -106,9 +106,11 @@ export type PricedCart = {
   itemCount: number;
 };
 
+export type PaymentPhoto = { bytes: ArrayBuffer; mime: string };
+
 export type PaymentDetails =
   | { method: "cash"; cashReceived: Centavos }
-  | { method: "qr_ph"; reference: string };
+  | { method: "qr_ph"; reference: string; photo?: PaymentPhoto | null };
 
 /** JSON payload for the record_sale() RPC. Also what the tablet stores locally. */
 export type SalePayload = {

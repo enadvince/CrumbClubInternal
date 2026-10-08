@@ -1,6 +1,7 @@
 "use client";
 import { useCallback, useEffect, useState } from "react";
 import { getSupabase } from "@/lib/supabase/client";
+import { CopyButton } from "@/components/CopyButton";
 import { EmptyState, Field, Notice, PageHeader, Spinner } from "@/components/ui";
 import { Modal } from "@/components/Modal";
 import { formatPeso } from "@/lib/money";
@@ -177,6 +178,32 @@ const FLAG_LABEL: Record<string, string> = {
   event_not_live: "Event not live",
 };
 
+/** QR payment: awaiting verification or verified (owner toggles it), plus the optional photo. */
+function PaymentVerification({ txn }: { txn: TxnRow }) {
+  const [status, setStatus] = useState(txn.payment_status);
+  const [photoUrl, setPhotoUrl] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  useEffect(() => {
+    if (!txn.payment_photo_path) return;
+    getSupabase().storage.from("payment-proofs").createSignedUrl(txn.payment_photo_path, 600)
+      .then(({ data }) => setPhotoUrl(data?.signedUrl ?? null));
+  }, [txn.payment_photo_path]);
+  async function toggle() {
+    const verify = status !== "verified";
+    const { error } = await getSupabase().rpc("set_payment_verified", { p_transaction_id: txn.id, p_verified: verify });
+    if (error) return setErr(errorMessage(error));
+    setStatus(verify ? "verified" : "awaiting_verification");
+  }
+  return (
+    <span className="inline-flex flex-wrap items-center justify-end gap-2">
+      <span className={`badge ${status === "verified" ? "bg-ok-light text-ok" : "bg-ube-light text-ube"}`}>{status === "verified" ? "✓ Verified" : "Awaiting verification"}</span>
+      {photoUrl && <a href={photoUrl} target="_blank" rel="noreferrer" className="text-sm font-semibold underline">Photo</a>}
+      <button className="btn-secondary min-h-11 text-sm" onClick={toggle}>{status === "verified" ? "Unverify" : "Mark verified"}</button>
+      {err && <span className="w-full text-xs text-danger">{err}</span>}
+    </span>
+  );
+}
+
 function StatusCell({ t }: { t: TxnRow }) {
   return (
     <div className="flex flex-wrap gap-1">
@@ -260,7 +287,10 @@ function TransactionDetail({ txn, onClose, onVoided }: { txn: TxnRow | null; onC
             <dt className="font-bold">Total</dt><dd className="text-right font-bold tabular-nums">{formatPeso(txn.total_centavos)}</dd>
             <dt>Cost of goods</dt><dd className="text-right tabular-nums">{lines ? formatPeso(cost) : "…"}</dd>
             <dt>Payment</dt><dd className="text-right">{txn.payment_method === "cash" ? "Cash" : "QR Ph"}</dd>
-            {txn.payment_method === "qr_ph" && (<><dt>Reference</dt><dd className="text-right font-mono">{txn.qr_reference}</dd></>)}
+            {txn.payment_method === "qr_ph" && (<>
+              <dt>Reference</dt><dd className="flex items-center justify-end gap-2 font-mono">{txn.qr_reference}{txn.qr_reference && <CopyButton value={txn.qr_reference} />}</dd>
+              <dt>Verification</dt><dd className="text-right"><PaymentVerification txn={txn} /></dd>
+            </>)}
             {txn.payment_method === "cash" && (<>
               <dt>Cash received</dt><dd className="text-right tabular-nums">{formatPeso(txn.cash_received_centavos ?? 0)}</dd>
               <dt>Change given</dt><dd className="text-right tabular-nums">{formatPeso(txn.change_given_centavos ?? 0)}</dd>

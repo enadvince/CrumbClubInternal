@@ -31,7 +31,10 @@ export function ShiftPanel({ open, onClose, eventId, staffId, staffName }: { ope
               <span className="w-20 tabular-nums">{formatTime(s.createdAt)}</span>
               <span className="w-32 font-mono text-sm">{s.orderNumber ?? ""}</span>
               <span className="min-w-0 flex-1 truncate">{s.summary}</span>
-              <span className="text-sm">{s.paymentMethod === "cash" ? "Cash" : `QR ${s.qrReference}`}</span>
+              <span className="text-sm">
+                {s.paymentMethod === "cash" ? "Cash" : `QR ${s.qrReference}`}
+                {s.paymentMethod === "qr_ph" && s.paymentStatus !== "verified" && <span className="badge ml-1 bg-ube-light text-ube">Awaiting verification</span>}
+              </span>
               <span className="w-24 text-right font-bold tabular-nums">{formatPeso(s.total)}</span>
               <span className="w-24 text-right text-xs no-underline">
                 {s.status === "voided" ? "Voided" : s.syncedAt ? "✓ Synced" : "↻ Not synced"}

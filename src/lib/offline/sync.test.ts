@@ -50,6 +50,12 @@ class FakeServer implements SyncTransport {
     if (!this.pinUses.has(u.id)) this.pinUses.set(u.id, u);
   }
   async heartbeat() { /* not recorded */ }
+  photos = new Map<string, number>();
+  async uploadPaymentPhoto(a: { transactionId: string; bytes: ArrayBuffer }) {
+    this.guard(`photo:${a.transactionId}`);
+    if (!this.sales.has(a.transactionId)) throw new SyncError("order not found; it must sync before its photo", true);
+    this.photos.set(a.transactionId, a.bytes.byteLength);
+  }
   async claimDeviceCode() { this.guard("claim"); return { device_id: "device-1", device_code: "T1", label: null }; }
   /** Health check fails while the API is down even if the device thinks it's online */
   apiDown = false;
@@ -93,7 +99,7 @@ function engine(database = db, locks: ConstructorParameters<typeof SyncEngine>[5
   return new SyncEngine(database, server, now, () => online, () => 0.5, locks);
 }
 
-async function sell(cart: CartLine[], opts: { qr?: string } = {}) {
+async function sell(cart: CartLine[], opts: { qr?: string; photo?: boolean } = {}) {
   const snap = (await db.getKv<CachedSnapshot>(KV.snapshot))!;
   const ops = await db.outbox.toArray();
   const menu = buildMenu(snap.snapshot, localStock(snap, ops))!;
@@ -103,7 +109,8 @@ async function sell(cart: CartLine[], opts: { qr?: string } = {}) {
     payment: opts.qr ? { method: "qr_ph", reference: opts.qr } : { method: "cash", cashReceived: priced.total },
     staffId: "staff-1", createdAt: new Date(clock),
   });
-  await recordSaleLocally(db, sale, { staffName: "Staff One", summary: "test" }, clock);
+  const photo = opts.photo ? { bytes: new Uint8Array([1, 2, 3, 4]).buffer, mime: "image/jpeg" } : null;
+  await recordSaleLocally(db, sale, { staffName: "Staff One", summary: "test", photo, businessId: "biz" }, clock);
   clock += 1000;
   return sale;
 }
@@ -431,5 +438,32 @@ describe("sync states, backoff and health checks", () => {
     expect(await e.nextDelay()).toBe(2_000);
     await db.outbox.where("status").equals("pending").modify({ nextRetryAt: clock + 120_000 });
     expect(await e.nextDelay()).toBe(PENDING_INTERVAL_MS);
+  });
+});
+
+describe("payments while offline", () => {
+  it("cash is final; QR is awaiting verification and never marked verified on the tablet", async () => {
+    online = false;
+    const cash = await sell(addProduct([], "ep-butter", lineId));
+    const qr = await sell(addProduct([], "ep-ube", lineId), { qr: "5012345678901" });
+    expect((await db.sales.get(cash.id))!.paymentStatus).toBe("paid");
+    expect((await db.sales.get(qr.id))!.paymentStatus).toBe("awaiting_verification");
+    online = true;
+    await engine().syncOnce();
+    expect((await db.sales.get(qr.id))!.paymentStatus).toBe("awaiting_verification");
+  });
+
+  it("a QR payment photo is kept on the tablet and uploaded after its order", async () => {
+    online = false;
+    const qr = await sell(addProduct([], "ep-ube", lineId), { qr: "5012345678902", photo: true });
+    const queued = await db.outbox.orderBy("seq").toArray();
+    expect(queued.map((o) => o.type)).toEqual(["sale", "qr_photo"]);
+    expect((await db.photos.get(qr.id))!.bytes.byteLength).toBe(4);
+    online = true;
+    await engine().syncOnce();
+    const order = server.calls.filter((c) => c.startsWith("sale:") || c.startsWith("photo:"));
+    expect(order).toEqual([`sale:${qr.id}`, `photo:${qr.id}`]);
+    expect(server.photos.get(qr.id)).toBe(4);
+    expect((await db.photos.get(qr.id))!.uploadedPath).toBe(`biz/${qr.id}.jpg`);
   });
 });

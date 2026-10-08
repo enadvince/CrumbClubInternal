@@ -27,7 +27,12 @@ export interface SyncTransport {
   claimDeviceCode(label?: string): Promise<ClaimedDevice>;
   /** Lightweight health check: the API answers and the login works. Returns the server clock. */
   ping(): Promise<{ server_time: string }>;
+  /** Uploads a QR payment photo to Storage and links it to its order. Idempotent. */
+  uploadPaymentPhoto(args: PhotoUpload): Promise<void>;
 }
+
+export type PhotoUpload = { transactionId: string; businessId: string; bytes: ArrayBuffer; mime: string };
+export type PhotoOpPayload = { transaction_id: string; photo_id: string; business_id: string };
 
 export type ClaimedDevice = { device_id: string; device_code: string; label: string | null };
 
@@ -209,9 +214,20 @@ export class SyncEngine {
         return this.transport.setAvailability(op.payload as Parameters<SyncTransport["setAvailability"]>[0]);
       case "pin_use":
         return this.transport.logPinUse(op.payload as PinUsePayload);
+      case "qr_photo":
+        return this.sendPhoto(op.payload as PhotoOpPayload);
       default:
         throw new SyncError(`This app version can't send "${op.type}" entries. Update the app.`, true);
     }
+  }
+
+  private async sendPhoto(p: PhotoOpPayload): Promise<void> {
+    const photo = await this.db.photos.get(p.photo_id);
+    if (!photo) throw new SyncError("The photo is no longer on this tablet", true);
+    if (photo.uploadedPath) return;
+    const businessId = p.business_id || (await this.db.getKv<CachedSnapshot>(KV.snapshot))?.snapshot.business.id || "";
+    await this.transport.uploadPaymentPhoto({ transactionId: p.transaction_id, businessId, bytes: photo.bytes, mime: photo.mime });
+    await this.db.photos.update(photo.id, { uploadedPath: `${businessId}/${p.transaction_id}.jpg` });
   }
 
   /** Fetches the menu, prices, server stock and staff, and applies owner voids locally. */

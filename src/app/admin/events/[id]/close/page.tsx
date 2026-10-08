@@ -21,7 +21,6 @@ export default function ClosePage({ params }: { params: Promise<{ id: string }> 
   const [waste, setWaste] = useState<Record<string, number>>({});
   const [ticked, setTicked] = useState<Record<string, boolean>>({});
   const [busy, setBusy] = useState(false);
-  const tickKey = `crumbclub-qr-ticks-${id}`;
 
   const load = useCallback(async () => {
     const { data, error } = await getSupabase().rpc("event_report", { p_event_id: id });
@@ -32,16 +31,19 @@ export default function ClosePage({ params }: { params: Promise<{ id: string }> 
   }, [id]);
 
   useEffect(() => { load(); }, [load]);
+  // Ticks are stored on the server (payment_status = verified), so every owner sees the same list.
   useEffect(() => {
-    try { setTicked(JSON.parse(localStorage.getItem(tickKey) ?? "{}")); } catch { /* ignore */ }
-  }, [tickKey]);
+    getSupabase().from("transactions").select("id, payment_status").eq("event_id", id).eq("payment_method", "qr_ph")
+      .then(({ data }) => setTicked(Object.fromEntries((data ?? []).map((t: { id: string; payment_status: string }) => [t.id, t.payment_status === "verified"]))));
+  }, [id]);
 
-  function tick(txnId: string, value: boolean) {
-    setTicked((t) => {
-      const next = { ...t, [txnId]: value };
-      try { localStorage.setItem(tickKey, JSON.stringify(next)); } catch { /* ignore */ }
-      return next;
-    });
+  async function tick(txnId: string, value: boolean) {
+    setTicked((t) => ({ ...t, [txnId]: value }));
+    const { error } = await getSupabase().rpc("set_payment_verified", { p_transaction_id: txnId, p_verified: value });
+    if (error) {
+      setTicked((t) => ({ ...t, [txnId]: !value }));
+      setError(errorMessage(error));
+    }
   }
 
   async function saveFloat(v: number | null) {
@@ -80,7 +82,6 @@ export default function ClosePage({ params }: { params: Promise<{ id: string }> 
     });
     setBusy(false);
     if (error) return setError(errorMessage(error));
-    try { localStorage.removeItem(tickKey); } catch { /* ignore */ }
     router.push(`/admin/events/${id}/summary`);
   }
 
@@ -133,7 +134,7 @@ export default function ClosePage({ params }: { params: Promise<{ id: string }> 
             <h2 id="qr-h" className="text-lg font-bold">📱 QR Ph payments</h2>
             <p className="text-sm">Ticked {qrTicked.length} of {report.qr_payments.length}</p>
           </div>
-          <p className="text-sm text-ink-soft">Open the GCash merchant transaction history and tick each one you can match.</p>
+          <p className="text-sm text-ink-soft">Open the GCash merchant transaction history and tick each one you can match. Ticking marks the payment as verified.</p>
           <p className="text-lg">Expected QR Ph total: <strong className="tabular-nums">{formatPeso(report.totals.qr_centavos)}</strong></p>
           <ul className="max-h-96 divide-y divide-crust-dark overflow-y-auto rounded-xl border border-crust-dark">
             {report.qr_payments.length === 0 && <li className="p-3 text-ink-soft">No QR Ph payments.</li>}

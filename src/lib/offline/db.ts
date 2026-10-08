@@ -140,8 +140,11 @@ export type LocalRefund = {
   createdAt: string;
 };
 
-/** Optional proof-of-payment photo for a QR sale, uploaded to Storage on sync. */
-export type LocalPhoto = { id: string; saleId: string; blob: Blob; mime: string; createdAt: number; uploadedPath?: string };
+/**
+ * Optional proof-of-payment photo for a QR sale (compressed JPEG), uploaded to Storage on sync.
+ * Stored as bytes rather than a Blob: some WebViews can't keep Blobs in IndexedDB.
+ */
+export type LocalPhoto = { id: string; saleId: string; bytes: ArrayBuffer; mime: string; createdAt: number; uploadedPath?: string };
 
 export class PosDatabase extends Dexie {
   kv!: Table<{ key: string; value: unknown }, string>;

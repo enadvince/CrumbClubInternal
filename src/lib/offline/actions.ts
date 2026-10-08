@@ -1,5 +1,5 @@
 import { saleStockEffects } from "../pos/cart";
-import type { SalePayload } from "../pos/types";
+import type { PaymentPhoto, SalePayload } from "../pos/types";
 import type { LocalSale, OutboxOp, PosDatabase } from "./db";
 import type { PinUseAction } from "./sync";
 import { takeOrderNumber } from "./numbering";
@@ -14,10 +14,10 @@ export const UNDO_WINDOW_MS = 60_000;
 export async function recordSaleLocally(
   db: PosDatabase,
   draft: SalePayload,
-  meta: { staffName: string; summary: string },
+  meta: { staffName: string; summary: string; photo?: PaymentPhoto | null; businessId?: string },
   now = Date.now(),
 ): Promise<LocalSale> {
-  return db.transaction("rw", db.sales, db.outbox, db.kv, async () => {
+  return db.transaction("rw", [db.sales, db.outbox, db.kv, db.photos], async () => {
     const { orderNumber, deviceId } = await takeOrderNumber(db, now);
     const sale: SalePayload = { ...draft, order_number: orderNumber, device_id: deviceId };
     const local = localSaleFrom(sale, meta);
@@ -34,6 +34,21 @@ export async function recordSaleLocally(
     };
     await db.sales.add(local);
     await db.outbox.add(op);
+    // The photo uploads after its order (queue order), so the order exists to attach it to.
+    if (meta.photo && sale.payment_method === "qr_ph") {
+      await db.photos.add({ id: sale.id, saleId: sale.id, bytes: meta.photo.bytes, mime: meta.photo.mime, createdAt: now });
+      await db.outbox.add({
+        opId: `photo:${sale.id}`,
+        type: "qr_photo",
+        eventId: sale.event_id,
+        payload: { transaction_id: sale.id, photo_id: sale.id, business_id: meta.businessId ?? "" },
+        effects: [],
+        createdAt: now,
+        status: "pending",
+        attempts: 0,
+        display: { orderNumber, label: "Payment photo" },
+      });
+    }
     return local;
   });
 }

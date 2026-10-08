@@ -219,7 +219,8 @@ export function PosApp() {
     const createdAt = new Date();
     const sale = buildSale({ id: uuidv7(createdAt.getTime()), menu, priced, discount, payment, staffId: currentStaff.id, createdAt });
     const summaryText = priced.lines.map((l) => `${l.line.quantity > 1 ? `${l.line.quantity}× ` : ""}${l.name}`).join(", ");
-    const saved = await recordSaleLocally(db, sale, { staffName: currentStaff.name, summary: summaryText }, createdAt.getTime());
+    const photo = payment.method === "qr_ph" ? payment.photo ?? null : null;
+    const saved = await recordSaleLocally(db, sale, { staffName: currentStaff.name, summary: summaryText, photo, businessId: snapshot?.business.id }, createdAt.getTime());
     const done: LastSale = { id: sale.id, orderNumber: saved.orderNumber, total: sale.total_centavos, change: sale.change_given_centavos, createdAt: createdAt.getTime() };
     // Reset immediately for the next customer.
     setCart([]);

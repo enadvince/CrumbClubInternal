@@ -34,6 +34,8 @@ export type TxnRow = {
   total_centavos: number;
   payment_method: "cash" | "qr_ph";
   qr_reference: string | null;
+  payment_status: "paid" | "awaiting_verification" | "verified";
+  payment_photo_path: string | null;
   cash_received_centavos: number | null;
   change_given_centavos: number | null;
   item_count: number;
@@ -131,12 +133,12 @@ const money = (c: number | null) => (c == null ? "" : centavosToDecimalString(c)
 export function transactionsCsv(rows: TxnRow[]): string {
   return toCsv(
     ["transaction_id", "order_number", "time_manila", "server_time_manila", "event", "staff", "status", "items", "has_bundle", "subtotal", "discount", "discount_reason",
-      "total", "payment_method", "qr_reference", "cash_received", "change_given", "void_reason", "voided_by", "voided_at_manila", "synced_at_manila", "flags"],
+      "total", "payment_method", "payment_status", "qr_reference", "cash_received", "change_given", "void_reason", "voided_by", "voided_at_manila", "synced_at_manila", "flags"],
     rows.map((t) => [
       t.id, t.order_number, manilaTimestamp(t.client_created_at), t.created_at ? manilaTimestamp(t.created_at) : "", t.events?.name ?? "",
       t.staff?.name ?? "", t.status, t.item_count, t.has_bundle ? "yes" : "no",
       money(t.subtotal_centavos), money(t.discount_centavos), t.discount_reason ?? "", money(t.total_centavos), t.payment_method,
-      t.qr_reference ?? "", money(t.cash_received_centavos), money(t.change_given_centavos), t.void_reason ?? "", t.voided_by?.name ?? "",
+      t.payment_status ?? "", t.qr_reference ?? "", money(t.cash_received_centavos), money(t.change_given_centavos), t.void_reason ?? "", t.voided_by?.name ?? "",
       t.voided_at ? manilaTimestamp(t.voided_at) : "", manilaTimestamp(t.synced_at), t.flags.join(" "),
     ]),
   );

@@ -100,6 +100,9 @@ export function demoTransport(): SyncTransport {
       return snap;
     },
     async heartbeat() {},
+    async uploadPaymentPhoto() {
+      await guard();
+    },
     async claimDeviceCode() {
       await guard();
       return { device_id: "demo-device", device_code: "T1", label: "Demo tablet" };

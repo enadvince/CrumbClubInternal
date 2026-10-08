@@ -70,6 +70,21 @@ export function supabaseTransport(supabase: SupabaseClient, appVersion = "1"): S
     async ping() {
       return rpc<{ server_time: string }>("pos_ping", {}, "Health check");
     },
+    async uploadPaymentPhoto({ transactionId, businessId, bytes, mime }) {
+      const path = `${businessId}/${transactionId}.jpg`;
+      try {
+        const { error } = await supabase.storage.from("payment-proofs").upload(path, bytes, { contentType: mime, upsert: false });
+        // Already there means an earlier attempt uploaded it and only the response was lost.
+        if (error && !/exists|duplicate/i.test(error.message)) {
+          const status = Number((error as { statusCode?: string | number }).statusCode) || undefined;
+          throw new SyncError(`Payment photo: ${error.message}`, isPermanentFailure(status, undefined));
+        }
+      } catch (err) {
+        if (err instanceof SyncError) throw err;
+        throw new SyncError(`Payment photo: ${err instanceof Error ? err.message : "network error"}`, false);
+      }
+      await rpc("attach_payment_photo", { p_transaction_id: transactionId, p_path: path }, "Payment photo");
+    },
     async heartbeat(count, oldest) {
       await rpc("device_heartbeat", { p_unsynced_count: count, p_oldest_unsynced_at: oldest, p_app_version: appVersion }, "Heartbeat");
     },
