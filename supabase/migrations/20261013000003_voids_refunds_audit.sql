@@ -69,11 +69,12 @@ begin
   return jsonb_build_object('status', 'ok');
 end $$;
 
--- An owner who approves something on the tablet must be an active owner of that business.
+-- An owner who approves something on the tablet must be an active owner of that business
+-- (a deactivated co-owner can no longer approve).
 create or replace function public._require_owner_staff(p_business uuid, p_staff uuid)
 returns void language plpgsql stable security definer set search_path = public as $$
 begin
-  if not exists (select 1 from public.staff where id = p_staff and business_id = p_business and role = 'owner') then
+  if not exists (select 1 from public.staff where id = p_staff and business_id = p_business and role = 'owner' and active) then
     perform public._fail('an owner must approve this');
   end if;
 end $$;
