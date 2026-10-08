@@ -1,7 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { toCsv } from "./csv";
+import { csvDate, toCsv } from "./csv";
 import { centavosToDecimalString } from "./money";
-import { addDays, manilaDayStart, TZ } from "./time";
+import { addDays, manilaDayStart } from "./time";
 
 export type TxnFilters = {
   eventId?: string;
@@ -120,12 +120,9 @@ export async function fetchLines(supabase: SupabaseClient, transactionIds: strin
   return out;
 }
 
-const manilaStamp = new Intl.DateTimeFormat("en-CA", {
-  timeZone: TZ, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false,
-});
-/** "2026-10-10 11:40:05" in Manila time, spreadsheet-friendly */
+/** ISO 8601 in Manila time for exports: "2026-10-10T11:40:05+08:00" */
 export function manilaTimestamp(ts: string): string {
-  return manilaStamp.format(new Date(ts)).replace(",", "");
+  return csvDate(ts);
 }
 
 const money = (c: number | null) => (c == null ? "" : centavosToDecimalString(c));

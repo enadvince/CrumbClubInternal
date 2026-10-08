@@ -6,6 +6,7 @@ import {
   openShiftLocally, drawerMovementLocally, closeShiftLocally, unsyncedForShift,
 } from "./actions";
 import { buildShiftReport } from "../pos/shift";
+import { backupCsv, buildBackup } from "./backup";
 import { localStock, summarizeOutbox } from "./stock";
 import { IDLE_INTERVAL_MS, PENDING_INTERVAL_MS, SyncEngine, SyncError, type PinUsePayload, type SyncTransport } from "./sync";
 import { addBundle, addProduct, buildMenu, buildSale, priceCart } from "../pos/cart";
@@ -614,5 +615,26 @@ describe("a full shift offline", () => {
     const firstSale = server.calls.findIndex((c) => c.startsWith("sale:"));
     expect(firstShift).toBeLessThan(firstSale);
     expect([...server.sales.values()].every((s) => s.shift_id === shift.id)).toBe(true);
+  });
+});
+
+describe("emergency export", () => {
+  it("includes every unsynced order, refund, shift and drawer movement", async () => {
+    online = false;
+    const shift = await openShiftLocally(db, { eventId: "event-1", staffId: "staff-1", staffName: "Staff One", openingFloat: 50000, openingDenoms: null }, clock);
+    const a = await sell(addProduct([], "ep-butter", lineId));
+    await drawerMovementLocally(db, { shiftId: shift.id, kind: "cash_in", amount: 1000, reason: "coins", staffId: "staff-1", staffName: "Staff One" }, clock);
+    await refundLocally(db, { saleId: a.id, kind: "refund", lines: [{ lineId: a.lines[0].id, quantity: 1 }], method: "cash", reasonCode: "changed_mind", cashierId: "staff-1", approverId: "staff-owner", shiftId: shift.id }, clock);
+    const exp = await buildBackup(db);
+    expect(exp.device?.deviceCode).toBe("T1");
+    expect(exp.sales.map((s) => s.id)).toContain(a.id);
+    expect(exp.unsynced.map((o) => o.type)).toEqual(expect.arrayContaining(["shift_open", "sale", "drawer", "refund", "audit"]));
+    expect(exp.shifts).toHaveLength(1);
+    expect(exp.drawer).toHaveLength(1);
+    expect(exp.refunds).toHaveLength(1);
+    const csv = await backupCsv(db);
+    expect(csv.startsWith("\uFEFFclient_order_id,order_number")).toBe(true);
+    expect(csv).toMatch(/T1-\d{6}-0001/);
+    expect(csv).toContain(",NO,cash,paid,");
   });
 });

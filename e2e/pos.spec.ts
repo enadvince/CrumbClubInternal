@@ -248,3 +248,19 @@ test("close a shift offline with a ₱100 variance: owner PIN and note, provisio
   await page.evaluate(() => window.dispatchEvent(new Event("online")));
   await expect(page.getByTestId("report-status")).toHaveText(/Final/, { timeout: 30_000 });
 });
+
+test("emergency export downloads unsynced orders", async ({ page, context }) => {
+  await unlock(page);
+  await context.setOffline(true);
+  await page.evaluate(() => window.dispatchEvent(new Event("offline")));
+  await sellOneUbeCash(page);
+  await page.getByRole("button", { name: /⚙ Owner/ }).click();
+  for (const d of "1234") await page.getByRole("dialog", { name: "Owner PIN" }).getByRole("button", { name: d, exact: true }).click();
+  const menu = page.getByRole("dialog", { name: "Owner menu" });
+  await expect(menu.getByText("Emergency export (last resort)")).toBeVisible();
+  const [download] = await Promise.all([page.waitForEvent("download"), menu.getByRole("button", { name: /Emergency export \(JSON\)/ }).click()]);
+  const text = await (await download.createReadStream()).toArray().then((chunks) => Buffer.concat(chunks).toString("utf8"));
+  const data = JSON.parse(text) as { kind: string; unsynced: { type: string; display?: { orderNumber?: string } }[] };
+  expect(data.kind).toBe("crumbclub-pos-emergency-export");
+  expect(data.unsynced.some((o) => o.type === "sale" && /T1-\d{6}-\d{4}/.test(o.display?.orderNumber ?? ""))).toBe(true);
+});

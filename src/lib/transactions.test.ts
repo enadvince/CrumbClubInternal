@@ -11,13 +11,13 @@ const txn: TxnRow = {
 
 describe("exports", () => {
   it("timestamps are in Manila time", () => {
-    expect(manilaTimestamp("2026-10-10T03:40:05Z")).toBe("2026-10-10 11:40:05");
+    expect(manilaTimestamp("2026-10-10T03:40:05Z")).toBe("2026-10-10T11:40:05+08:00");
   });
 
   it("transactions CSV has exact decimal money and escapes text", () => {
     const csv = transactionsCsv([txn]);
     expect(csv.split("\r\n")[1]).toContain('"Promo, weekend",171.00,cash,paid');
-    expect(csv.split("\r\n")[1]).toMatch(/^t1,T1-261010-0007,2026-10-10 11:40:05,2026-10-10 11:41:00,/);
+    expect(csv.split("\r\n")[1]).toMatch(/^t1,T1-261010-0007,2026-10-10T11:40:05\+08:00,2026-10-10T11:41:00\+08:00,/);
   });
 
   it("line CSV expands bundle components with net revenue and profit", () => {

@@ -4,7 +4,7 @@ import { useLiveQuery } from "dexie-react-hooks";
 import { Modal } from "@/components/Modal";
 import { ConfirmModal } from "@/components/ConfirmModal";
 import { getDb } from "@/lib/offline/db";
-import { adjustStockLocally, setAvailabilityLocally, type AdjustmentReason } from "@/lib/offline/actions";
+import { adjustStockLocally, auditLocally, setAvailabilityLocally, type AdjustmentReason } from "@/lib/offline/actions";
 import { backupCsv, backupJson } from "@/lib/offline/backup";
 import type { SyncEngine, SyncState } from "@/lib/offline/sync";
 import type { UnsyncedSummary } from "@/lib/offline/stock";
@@ -40,9 +40,10 @@ export function OwnerMenu({
   async function download(kind: "json" | "csv") {
     const db = getDb();
     const stamp = new Date().toISOString().slice(0, 16).replace(/[:T]/g, "-");
-    if (kind === "json") downloadText(`crumbclub-backup-${stamp}.json`, await backupJson(db), "application/json");
-    else downloadText(`crumbclub-backup-${stamp}.csv`, await backupCsv(db));
-    setMessage("Backup downloaded. Keep it until these sales show up on the dashboard.");
+    if (kind === "json") downloadText(`crumbclub-emergency-export-${stamp}.json`, await backupJson(db), "application/json");
+    else downloadText(`crumbclub-emergency-export-${stamp}.csv`, await backupCsv(db));
+    await auditLocally(db, { action: "emergency_export", manager_staff_id: ownerStaffId, note: kind });
+    setMessage("Emergency export downloaded. Keep the file safe until these orders show up on the owner pages.");
   }
 
   async function syncNow() {
@@ -84,12 +85,15 @@ export function OwnerMenu({
             <button className="btn-primary" onClick={syncNow} disabled={state.syncing}>{state.syncing ? "Syncing…" : "↻ Sync now"}</button>
             {summary.failed > 0 && <button className="btn-secondary" onClick={retryFailed}>Retry failed</button>}
           </div>
-          <div className="rounded-xl border-2 border-crust-dark p-3">
-            <p className="font-bold">Download local backup</p>
-            <p className="mb-2 text-sm text-ink-soft">Every sale stored on this tablet (synced and unsynced). Use it if the tablet can&apos;t get online.</p>
+          <div className="rounded-xl border-2 border-danger/50 bg-danger-light/40 p-3">
+            <p className="font-bold text-danger">Emergency export (last resort)</p>
+            <p className="mb-2 text-sm text-ink-soft">
+              Downloads everything stored on this tablet, including orders, refunds, shifts and drawer movements that never synced.
+              Use it only if this tablet can never get online again, then contact support. Normal backups happen on the server every night.
+            </p>
             <div className="flex flex-wrap gap-2">
-              <button className="btn-secondary" onClick={() => download("json")}>⬇ Backup (JSON)</button>
-              <button className="btn-secondary" onClick={() => download("csv")}>⬇ Backup (CSV)</button>
+              <button className="btn-secondary" onClick={() => download("json")}>⬇ Emergency export (JSON)</button>
+              <button className="btn-secondary" onClick={() => download("csv")}>⬇ Emergency export (CSV)</button>
             </div>
           </div>
           {unsynced.length > 0 && (
