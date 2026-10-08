@@ -47,18 +47,23 @@ test("sells offline, shows unsynced count, syncs when back online", async ({ pag
   await expect(page.getByRole("button", { name: /^Ube Croissant.*22 left/ })).toBeVisible();
 });
 
-test("bundle: fixed bundle sells out when a component runs low; undo returns stock", async ({ page }) => {
+test("bundle: out of stock warns but never blocks; undo returns stock", async ({ page }) => {
   await unlock(page);
   await page.getByRole("tab", { name: /Bundles/ }).click();
   const box = page.getByRole("button", { name: /^Ube Box \(6\)/ });
   for (let i = 0; i < 4; i++) await box.click();
-  // 24 ube → 4 boxes uses all of them
-  await expect(box).toBeDisabled();
-  await expect(box).toHaveAccessibleName(/All in cart/);
+  // 24 ube: 4 boxes use all of them. The tile shows Out of stock but stays usable.
+  await expect(box).toHaveAccessibleName(/Out of stock/);
+  await expect(box).toBeEnabled();
+  await box.click();
+  const confirm = page.getByRole("dialog", { name: "Out of stock on record" });
+  await expect(confirm.getByText("Out of stock on record. Add anyway?")).toBeVisible();
+  await confirm.getByRole("button", { name: "Cancel" }).click();
+  await expect(page.getByLabel("Cart").getByLabel("Quantity 4")).toBeVisible();
   await page.getByRole("button", { name: /^Checkout/ }).click();
   await page.getByRole("button", { name: "Exact" }).click();
   await page.getByRole("button", { name: /^Complete sale/ }).click();
-  await expect(box).toHaveAccessibleName(/Sold out/);
+  await expect(box).toHaveAccessibleName(/Out of stock/);
 
   // Undoing a sale needs an owner PIN: a staff PIN is refused.
   await page.getByRole("button", { name: /^Undo/ }).click();
@@ -66,9 +71,9 @@ test("bundle: fixed bundle sells out when a component runs low; undo returns sto
   await expect(dialog.getByRole("heading", { name: "Owner PIN to void" })).toBeVisible();
   for (const d of "1111") await dialog.getByRole("button", { name: d, exact: true }).click();
   await expect(dialog.getByText(/isn't an owner PIN/)).toBeVisible();
-  await expect(box).toHaveAccessibleName(/Sold out/);
+  await expect(box).toHaveAccessibleName(/Out of stock/);
   for (const d of "1234") await dialog.getByRole("button", { name: d, exact: true }).click();
-  await expect(box).toBeEnabled();
+  await expect(box).not.toHaveAccessibleName(/Out of stock/);
 });
 
 test("filters: subcategories for individual items, type for bundles", async ({ page }) => {

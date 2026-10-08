@@ -46,6 +46,10 @@ export type MenuProduct = {
   is_available: boolean;
   sort_order: number;
   sold_out_at: string | null;
+  /** false: made to order, no stock kept (older servers don't send it: tracked) */
+  track_stock?: boolean;
+  /** Per-product low stock threshold; null/absent uses the event's */
+  low_stock_threshold?: number | null;
 };
 
 export type MenuBundle = {

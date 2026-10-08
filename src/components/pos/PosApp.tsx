@@ -13,11 +13,12 @@ import { demoTransport, isPosDemo } from "@/lib/offline/demoTransport";
 import { localAvailability, localStock, summarizeOutbox } from "@/lib/offline/stock";
 import { isDuplicateQrRef, logPinUseLocally, recordSaleLocally, undoSale, UNDO_WINDOW_MS } from "@/lib/offline/actions";
 import {
-  addBundle, addProduct, buildMenu, buildSale, bundleState, canIncrement, changeQuantity, priceCart,
-  productState, pruneCart, remainingStock,
+  addBundle, addProduct, addWouldOversell, buildMenu, buildSale, bundleState, canIncrement, changeQuantity, incrementWouldOversell,
+  isTracked, priceCart, productState, pruneCart, remainingStock,
 } from "@/lib/pos/cart";
 import { applySuggestion, suggestBundle } from "@/lib/pos/suggest";
-import type { CartLine, Discount, MenuBundle, PaymentDetails, SnapshotStaff } from "@/lib/pos/types";
+import type { CartLine, Discount, MenuBundle, MenuProduct, PaymentDetails, SnapshotStaff } from "@/lib/pos/types";
+import { ConfirmModal } from "@/components/ConfirmModal";
 import { formatPeso } from "@/lib/money";
 import { errorMessage } from "@/lib/errors";
 import { enterOwnerView, restoreDeviceSession } from "@/lib/ownerView";
@@ -78,6 +79,8 @@ export function PosApp() {
   const [lastSale, setLastSale] = useState<LastSale | null>(null);
   const [confirmation, setConfirmation] = useState<LastSale | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  // "Out of stock on record. Add anyway?" before going below zero.
+  const [stockConfirm, setStockConfirm] = useState<{ short: MenuProduct[]; apply: () => void } | null>(null);
 
   useWakeLock(boot === "ready");
 
@@ -212,9 +215,20 @@ export function PosApp() {
     try { localStorage.setItem(TAB_KEY, t); } catch { /* ignore */ }
   }
 
+  /** Adds straight away, or asks first if the stock on record would go below zero. */
+  function addChecked(candidate: CartLine | null, apply: () => void, short?: MenuProduct[]) {
+    const missing = short ?? (menu && candidate ? addWouldOversell(menu, cart, candidate) : []);
+    if (missing.length > 0) setStockConfirm({ short: missing, apply });
+    else apply();
+  }
+
+  function tapProduct(eventProductId: string) {
+    addChecked({ id: "probe", kind: "product", eventProductId, quantity: 1 }, () => setCart((c) => addProduct(c, eventProductId, newId)));
+  }
+
   function tapBundle(b: MenuBundle) {
     if (b.type === "mix_match") setPicking(b);
-    else setCart((c) => addBundle(c, b.event_bundle_id, newId));
+    else addChecked({ id: "probe", kind: "bundle", eventBundleId: b.event_bundle_id, quantity: 1 }, () => setCart((c) => addBundle(c, b.event_bundle_id, newId)));
   }
 
   async function completeSale(payment: PaymentDetails) {
@@ -488,9 +502,9 @@ export function PosApp() {
                     price={p.price_centavos}
                     photoUrl={p.photo_url}
                     state={state}
-                    stockLabel={!p.is_available ? "—" : `${Math.max(0, remaining.get(p.event_product_id) ?? 0)} left`}
+                    stockLabel={!p.is_available || !isTracked(p) ? "" : `${Math.max(0, remaining.get(p.event_product_id) ?? 0)} left`}
                     inCart={inCartProduct.get(p.event_product_id) ?? 0}
-                    onTap={() => setCart((c) => addProduct(c, p.event_product_id, newId))}
+                    onTap={() => tapProduct(p.event_product_id)}
                   />
                 );
               })}
@@ -508,7 +522,7 @@ export function PosApp() {
                     photoUrl={b.photo_url}
                     detail={detail}
                     state={state}
-                    stockLabel={state.canAdd ? `${state.remaining} possible` : ""}
+                    stockLabel={state.canAdd && Number.isFinite(state.remaining) && state.remaining > 0 ? `${state.remaining} possible` : ""}
                     inCart={inCartBundle.get(b.event_bundle_id) ?? 0}
                     onTap={() => tapBundle(b)}
                   />
@@ -525,7 +539,11 @@ export function PosApp() {
             discount={discount}
             suggestion={suggestion}
             canIncrement={(id) => canIncrement(menu, cart, id)}
-            onChange={(id, d) => setCart((c) => changeQuantity(c, id, d))}
+            onChange={(id, d) => {
+              const apply = () => setCart((c) => changeQuantity(c, id, d));
+              if (d > 0) addChecked(null, apply, incrementWouldOversell(menu, cart, id));
+              else apply();
+            }}
             onClear={() => { setCart([]); setDiscount(null); }}
             onApplySuggestion={() => suggestion && setCart((c) => applySuggestion(c, suggestion, newId))}
             onDiscount={() => setDiscounting(true)}
@@ -574,8 +592,26 @@ export function PosApp() {
         menu={menu}
         remaining={remaining}
         onClose={() => setPicking(null)}
-        onAdd={(picks) => { setCart((c) => addBundle(c, picking!.event_bundle_id, newId, picks)); setPicking(null); }}
+        onAdd={(picks) => {
+          const bundleId = picking!.event_bundle_id;
+          setPicking(null);
+          addChecked({ id: "probe", kind: "bundle", eventBundleId: bundleId, quantity: 1, picks }, () => setCart((c) => addBundle(c, bundleId, newId, picks)));
+        }}
       />
+      <ConfirmModal
+        open={!!stockConfirm}
+        title="Out of stock on record"
+        confirmLabel="Add anyway"
+        tone="primary"
+        onClose={() => setStockConfirm(null)}
+        onConfirm={() => { stockConfirm?.apply(); setStockConfirm(null); }}
+      >
+        <p>Out of stock on record. Add anyway?</p>
+        <p className="text-sm text-ink-soft">
+          {stockConfirm?.short.map((p) => p.name).join(", ")} {stockConfirm && stockConfirm.short.length === 1 ? "has" : "have"} none left on record.
+          Only add it if it&apos;s really there; the count is corrected when the order syncs.
+        </p>
+      </ConfirmModal>
       <CheckoutModal open={checkingOut} total={priced.total} onClose={() => setCheckingOut(false)} onComplete={completeSale} checkQrDuplicate={checkQrDuplicate} />
       <DiscountModal open={discounting} subtotal={priced.subtotal} options={snapshot.discount_options ?? []} onClose={() => setDiscounting(false)} onApply={(d) => { setDiscount(d); setDiscounting(false); }} />
       <OrderHistory

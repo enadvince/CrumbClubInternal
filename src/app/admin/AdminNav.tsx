@@ -10,6 +10,7 @@ const links = [
   { href: "/admin/dashboard", label: "Dashboard", icon: "📊" },
   { href: "/admin/events", label: "Events", icon: "📅" },
   { href: "/admin/transactions", label: "Transactions", icon: "🧾" },
+  { href: "/admin/reports", label: "Reports", icon: "📈" },
   { href: "/admin/products", label: "Products", icon: "🥐" },
   { href: "/admin/bundles", label: "Bundles", icon: "📦" },
   { href: "/admin/discounts", label: "Discounts", icon: "🏷️" },

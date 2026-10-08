@@ -98,6 +98,8 @@ function ProductEditor({ product, categories, onClose, onSaved }: {
   const [cost, setCost] = useState<number | null>(null);
   const [photo, setPhoto] = useState<string | null>(null);
   const [active, setActive] = useState(true);
+  const [trackStock, setTrackStock] = useState(true);
+  const [threshold, setThreshold] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -106,8 +108,10 @@ function ProductEditor({ product, categories, onClose, onSaved }: {
     if (product && product !== "new") {
       setName(product.name); setCategory(product.category); setPrice(product.default_price_centavos);
       setCost(product.cost_centavos); setPhoto(product.photo_url); setActive(product.active);
+      setTrackStock(product.track_stock ?? true); setThreshold(product.low_stock_threshold == null ? "" : String(product.low_stock_threshold));
     } else {
       setName(""); setCategory(categories[0] ?? "Pastries"); setPrice(null); setCost(null); setPhoto(null); setActive(true);
+      setTrackStock(true); setThreshold("");
     }
   }, [product, categories]);
 
@@ -118,7 +122,12 @@ function ProductEditor({ product, categories, onClose, onSaved }: {
     e.preventDefault();
     if (price == null || cost == null) return setError("Enter both price and cost per piece.");
     setBusy(true);
-    const row = { name: name.trim(), category: category.trim() || "Pastries", default_price_centavos: price, cost_centavos: cost, photo_url: photo, active };
+    const lowAt = threshold.trim() === "" ? null : Number(threshold);
+    if (lowAt != null && (!Number.isInteger(lowAt) || lowAt < 0)) return setError("The low stock alert must be a whole number, 0 or more.");
+    const row = {
+      name: name.trim(), category: category.trim() || "Pastries", default_price_centavos: price, cost_centavos: cost, photo_url: photo, active,
+      track_stock: trackStock, low_stock_threshold: lowAt,
+    };
     const supabase = getSupabase();
     const { error } = isNew
       ? await supabase.from("products").insert({ ...row, business_id: businessId })
@@ -156,6 +165,18 @@ function ProductEditor({ product, categories, onClose, onSaved }: {
           </p>
           {margin != null && margin < 0 && <p className="text-sm font-semibold">⚠ You lose money on each sale at this price.</p>}
         </div>
+        <fieldset className="space-y-2 rounded-xl border border-crust-dark p-3">
+          <legend className="px-1 text-sm font-semibold text-ink-soft">Stock</legend>
+          <label className="flex min-h-12 items-center gap-3">
+            <input type="checkbox" className="h-5 w-5 accent-caramel" checked={trackStock} onChange={(e) => setTrackStock(e.target.checked)} />
+            Track stock (turn off for things made to order)
+          </label>
+          {trackStock && (
+            <Field label="Low stock alert at" htmlFor="p-low" hint="Staff see a Low badge at or below this many. Leave empty to use the event's setting (5 by default).">
+              <input id="p-low" className="input w-32" inputMode="numeric" value={threshold} onChange={(e) => setThreshold(e.target.value.replace(/\D/g, ""))} placeholder="5" />
+            </Field>
+          )}
+        </fieldset>
         <label className="flex min-h-12 items-center gap-3">
           <input type="checkbox" className="h-5 w-5 accent-caramel" checked={active} onChange={(e) => setActive(e.target.checked)} />
           Active (can be added to events)
