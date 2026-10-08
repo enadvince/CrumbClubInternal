@@ -154,8 +154,8 @@ export function PosApp() {
   const remaining = useMemo(() => (menu ? remainingStock(menu, cart) : new Map<string, number>()), [menu, cart]);
   const priced = useMemo(() => (menu ? priceCart(cart, menu, discount) : { lines: [], subtotal: 0, discount: 0, total: 0, itemCount: 0 }), [menu, cart, discount]);
   const suggestion = useMemo(() => (menu ? suggestBundle(cart, menu) : null), [menu, cart]);
-  const products = useMemo(() => (menu ? [...menu.products.values()].sort((a, b) => a.sort_order - b.sort_order || a.name.localeCompare(b.name)) : []), [menu]);
-  const bundles = useMemo(() => (menu ? [...menu.bundles.values()].sort((a, b) => a.sort_order - b.sort_order || a.name.localeCompare(b.name)) : []), [menu]);
+  const products = useMemo(() => (menu ? [...menu.products.values()].sort((a, b) => a.name.localeCompare(b.name)) : []), [menu]);
+  const bundles = useMemo(() => (menu ? [...menu.bundles.values()].sort((a, b) => a.name.localeCompare(b.name)) : []), [menu]);
   const subcategories = useMemo(() => [...new Set(products.map((p) => p.category))].sort(), [products]);
   const bundleTypes = useMemo(() => (["fixed", "mix_match"] as const).filter((t) => bundles.some((b) => b.type === t)), [bundles]);
   const inCartProduct = useMemo(() => {

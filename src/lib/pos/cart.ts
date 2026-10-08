@@ -129,7 +129,7 @@ export function eligibleProducts(menu: Menu, bundle: MenuBundle): MenuProduct[] 
   return bundle.items
     .map((i) => (i.event_product_id ? menu.products.get(i.event_product_id) : undefined))
     .filter((p): p is MenuProduct => !!p && p.is_available)
-    .sort((a, b) => a.sort_order - b.sort_order || a.name.localeCompare(b.name));
+    .sort((a, b) => a.name.localeCompare(b.name));
 }
 
 /** Whether a line's quantity can go up by one given current stock. */
