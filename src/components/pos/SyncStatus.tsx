@@ -54,7 +54,7 @@ export function UnsyncedBanner({ summary, now, onOpen }: { summary: UnsyncedSumm
 }
 
 const TYPE_LABEL: Record<OutboxOp["type"], string> = {
-  sale: "Order", void: "Void", adjust: "Stock change", availability: "Availability", pin_use: "PIN log",
+  sale: "Order", void: "Void", void_order: "Void", adjust: "Stock change", availability: "Availability", pin_use: "PIN log",
   refund: "Refund", audit: "Audit entry", shift_open: "Shift opened", shift_close: "Shift closed",
   drawer: "Drawer movement", qr_photo: "Payment photo",
 };

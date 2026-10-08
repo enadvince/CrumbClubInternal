@@ -85,6 +85,15 @@ export function supabaseTransport(supabase: SupabaseClient, appVersion = "1"): S
       }
       await rpc("attach_payment_photo", { p_transaction_id: transactionId, p_path: path }, "Payment photo");
     },
+    async voidOrder(payload) {
+      await rpc("void_order", { p: payload }, "Void");
+    },
+    async refundOrder(payload) {
+      await rpc("refund_order", { p: payload }, "Refund");
+    },
+    async logAudit(entry) {
+      await rpc("log_audit", { p_entry: entry }, "Audit log");
+    },
     async heartbeat(count, oldest) {
       await rpc("device_heartbeat", { p_unsynced_count: count, p_oldest_unsynced_at: oldest, p_app_version: appVersion }, "Heartbeat");
     },

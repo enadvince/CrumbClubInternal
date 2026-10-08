@@ -2,6 +2,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { getSupabase } from "@/lib/supabase/client";
 import { CopyButton } from "@/components/CopyButton";
+import { SecretInput } from "@/components/SecretInput";
+import { VOID_REASONS } from "@/lib/pos/reasons";
 import { EmptyState, Field, Notice, PageHeader, Spinner } from "@/components/ui";
 import { Modal } from "@/components/Modal";
 import { formatPeso } from "@/lib/money";
@@ -217,19 +219,22 @@ function TransactionDetail({ txn, onClose, onVoided }: { txn: TxnRow | null; onC
   const [lines, setLines] = useState<LineRow[] | null>(null);
   const [voiding, setVoiding] = useState(false);
   const [reason, setReason] = useState("");
+  const [note, setNote] = useState("");
   const [pin, setPin] = useState("");
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    setLines(null); setVoiding(false); setReason(""); setPin(""); setError(null);
+    setLines(null); setVoiding(false); setReason(""); setNote(""); setPin(""); setError(null);
     if (!txn) return;
     getSupabase().from("transaction_lines").select(LINES_SELECT).eq("transaction_id", txn.id).order("position")
       .then(({ data, error }) => (error ? setError(errorMessage(error)) : setLines(data as unknown as LineRow[])));
   }, [txn]);
 
   async function doVoid() {
-    if (!txn || !reason.trim() || !/^\d{4}$/.test(pin)) return;
-    const { error } = await getSupabase().rpc("void_sale_with_owner_pin", { p_transaction_id: txn.id, p_reason: reason.trim(), p_pin: pin });
+    if (!txn || !reason || (reason === "other" && !note.trim()) || !/^\d{4}$/.test(pin)) return;
+    const { error } = await getSupabase().rpc("void_order_with_owner_pin", {
+      p: { transaction_id: txn.id, reason_code: reason, note: note.trim() || null }, p_pin: pin,
+    });
     setPin("");
     if (error) return setError(errorMessage(error));
     onVoided();
@@ -302,15 +307,21 @@ function TransactionDetail({ txn, onClose, onVoided }: { txn: TxnRow | null; onC
           ) : voiding ? (
             <div className="space-y-2 rounded-xl border-2 border-danger/40 p-3">
               <Field label="Reason for voiding (required)" htmlFor="void-reason">
-                <input id="void-reason" autoFocus className="input" value={reason} onChange={(e) => setReason(e.target.value)} placeholder="e.g. wrong item rung up, customer refunded" />
+                <select id="void-reason" autoFocus className="input" value={reason} onChange={(e) => setReason(e.target.value)}>
+                  <option value="">Pick a reason</option>
+                  {VOID_REASONS.map((r) => <option key={r.code} value={r.code}>{r.label}</option>)}
+                </select>
+              </Field>
+              <Field label={`Note${reason === "other" ? " (required)" : " (optional)"}`} htmlFor="void-note">
+                <input id="void-note" className="input" value={note} onChange={(e) => setNote(e.target.value)} maxLength={200} />
               </Field>
               <Field label="Owner PIN (required)" htmlFor="void-pin">
-                <input id="void-pin" className="input w-32 text-center text-xl tracking-[0.5em]" type="password" inputMode="numeric" autoComplete="off"
+                <SecretInput id="void-pin" className="w-32 text-center text-xl tracking-[0.5em]" inputMode="numeric" autoComplete="off"
                   maxLength={4} value={pin} onChange={(e) => setPin(e.target.value.replace(/\D/g, "").slice(0, 4))} />
               </Field>
-              <p className="text-sm text-ink-soft">The sale stays in history as voided and its pastries are returned to stock.</p>
+              <p className="text-sm text-ink-soft">The sale stays in history as voided, keeps its order number, and its pastries are returned to stock.</p>
               <div className="flex gap-2">
-                <button className="btn-danger" disabled={!reason.trim() || pin.length !== 4} onClick={doVoid}>Void sale</button>
+                <button className="btn-danger" disabled={!reason || (reason === "other" && !note.trim()) || pin.length !== 4} onClick={doVoid}>Void sale</button>
                 <button className="btn-ghost" onClick={() => setVoiding(false)}>Cancel</button>
               </div>
             </div>

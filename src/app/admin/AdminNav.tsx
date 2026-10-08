@@ -16,6 +16,7 @@ const links = [
   { href: "/admin/staff", label: "Staff", icon: "👥" },
   { href: "/admin/owners", label: "Owners", icon: "🔐" },
   { href: "/admin/pin-log", label: "PIN log", icon: "🔑" },
+  { href: "/admin/audit", label: "Audit log", icon: "📜" },
 ];
 
 export function AdminNav({ businessName, email }: { businessName: string; email: string }) {

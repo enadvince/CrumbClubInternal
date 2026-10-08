@@ -15,7 +15,7 @@ import type { SalePayload, Snapshot } from "../pos/types";
 export type StockEffect = { eventProductId: string; delta: number };
 
 export type OpType =
-  | "sale" | "void" | "adjust" | "availability" | "pin_use"
+  | "sale" | "void" | "void_order" | "adjust" | "availability" | "pin_use"
   | "refund" | "audit" | "shift_open" | "shift_close" | "drawer" | "qr_photo";
 
 /** pending → syncing → synced, or failed (rejected by the server; kept for manual review). */
@@ -47,6 +47,8 @@ export type OutboxOp = {
 };
 
 export type PaymentStatus = "paid" | "awaiting_verification" | "verified";
+export type { VoidReasonCode } from "../pos/reasons";
+import type { VoidReasonCode } from "../pos/reasons";
 
 export type LocalSale = {
   id: string;
@@ -70,8 +72,9 @@ export type LocalSale = {
   paymentStatus?: PaymentStatus;
   /** Centavos refunded so far (partial or full refunds, line voids) */
   refunded?: Centavos;
-  /** Quantity refunded so far, per sale line id */
-  refundedQty?: Record<string, number>;
+  /** Quantity and amount refunded so far, per sale line id */
+  refundedLines?: Record<string, { qty: number; amount: Centavos }>;
+  voidReasonCode?: VoidReasonCode;
 };
 
 export type CachedSnapshot = {

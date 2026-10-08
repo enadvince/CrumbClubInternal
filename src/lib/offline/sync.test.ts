@@ -1,7 +1,7 @@
 import "fake-indexeddb/auto";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { KV, PosDatabase, type CachedSnapshot } from "./db";
-import { recordSaleLocally, undoSale, adjustStockLocally, isDuplicateQrRef, logPinUseLocally, UndoError } from "./actions";
+import { recordSaleLocally, undoSale, adjustStockLocally, isDuplicateQrRef, logPinUseLocally, UndoError, voidOrderLocally, refundLocally, ActionError } from "./actions";
 import { localStock, summarizeOutbox } from "./stock";
 import { IDLE_INTERVAL_MS, PENDING_INTERVAL_MS, SyncEngine, SyncError, type PinUsePayload, type SyncTransport } from "./sync";
 import { addBundle, addProduct, buildMenu, buildSale, priceCart } from "../pos/cart";
@@ -56,6 +56,23 @@ class FakeServer implements SyncTransport {
     if (!this.sales.has(a.transactionId)) throw new SyncError("order not found; it must sync before its photo", true);
     this.photos.set(a.transactionId, a.bytes.byteLength);
   }
+  refunds = new Map<string, Record<string, unknown>>();
+  audits = new Map<string, Record<string, unknown>>();
+  async voidOrder(p: Record<string, unknown>) {
+    this.guard(`void_order:${p.transaction_id}`);
+    const s = this.sales.get(p.transaction_id as string);
+    if (!s) throw new SyncError("order not found", true);
+    s.status = "voided";
+  }
+  async refundOrder(p: Record<string, unknown>) {
+    this.guard(`refund:${p.id}`);
+    if (!this.sales.has(p.transaction_id as string)) throw new SyncError("order not found", true);
+    if (!this.refunds.has(p.id as string)) this.refunds.set(p.id as string, p);
+  }
+  async logAudit(e: Record<string, unknown>) {
+    this.guard(`audit:${e.action}`);
+    if (!this.audits.has(e.id as string)) this.audits.set(e.id as string, e);
+  }
   async claimDeviceCode() { this.guard("claim"); return { device_id: "device-1", device_code: "T1", label: null }; }
   /** Health check fails while the API is down even if the device thinks it's online */
   apiDown = false;
@@ -75,7 +92,16 @@ class FakeServer implements SyncTransport {
     }
     let adj = 0;
     for (const a of this.adjustments.values()) if (a.event_product_id === ep) adj += a.quantity_change;
-    return start + adj - sold;
+    let refunded = 0;
+    for (const r of this.refunds.values()) {
+      const sale = this.sales.get(r.transaction_id as string)!;
+      if (sale.status !== "completed") continue;
+      for (const rl of r.lines as { transaction_line_id: string; quantity: number }[]) {
+        const line = sale.lines.find((l) => l.id === rl.transaction_line_id)!;
+        for (const c of line.components) if (c.event_product_id === ep) refunded += (c.quantity * rl.quantity) / line.quantity;
+      }
+    }
+    return start + adj - sold + refunded;
   }
   ownerVoid(id: string) { this.sales.get(id)!.status = "voided"; }
   async fetchSnapshot(): Promise<Snapshot> {
@@ -465,5 +491,58 @@ describe("payments while offline", () => {
     expect(order).toEqual([`sale:${qr.id}`, `photo:${qr.id}`]);
     expect(server.photos.get(qr.id)).toBe(4);
     expect((await db.photos.get(qr.id))!.uploadedPath).toBe(`biz/${qr.id}.jpg`);
+  });
+});
+
+describe("owner-approved voids and refunds offline", () => {
+  it("void and partial refund offline, then sync: audit entries land and stock is restored once", async () => {
+    online = false;
+    const a = await sell(addProduct(addProduct([], "ep-butter", lineId), "ep-butter", lineId)); // 2 butter
+    const b = await sell(addBundle([], "eb-ubebox", lineId)); // 6 ube
+    expect(await stockOf("ep-butter")).toBe(22);
+    expect(await stockOf("ep-ube")).toBe(18);
+
+    await voidOrderLocally(db, { saleId: b.id, reasonCode: "wrong_item", cashierId: "staff-1", approverId: "staff-owner" }, clock);
+    const lineA = a.lines[0].id;
+    const refund = await refundLocally(db, {
+      saleId: a.id, kind: "refund", lines: [{ lineId: lineA, quantity: 1 }], method: "cash", reasonCode: "changed_mind",
+      cashierId: "staff-1", approverId: "staff-owner",
+    }, clock + 10);
+    expect(refund.amount).toBe(9500);
+    expect(await stockOf("ep-ube")).toBe(24);
+    expect(await stockOf("ep-butter")).toBe(23);
+    expect((await db.sales.get(b.id))!).toMatchObject({ status: "voided", voidReason: "Wrong item" });
+    // The voided order keeps its number.
+    expect((await db.sales.get(b.id))!.orderNumber).toMatch(/^T1-\d{6}-0002$/);
+
+    online = true;
+    await engine().syncOnce();
+    expect(server.sales.get(b.id)!.status).toBe("voided");
+    expect(server.refunds.size).toBe(1);
+    expect([...server.audits.values()].map((e) => e.action).sort()).toEqual(["refund", "void"]);
+    const voidAudit = [...server.audits.values()].find((e) => e.action === "void")!;
+    expect(voidAudit).toMatchObject({ manager_staff_id: "staff-owner", cashier_staff_id: "staff-1", transaction_id: b.id });
+    expect(voidAudit.device_time).toBeTruthy();
+    expect(server.serverStock("ep-ube")).toBe(24);
+    expect(server.serverStock("ep-butter")).toBe(23);
+    // After the pull, local stock equals the server's: nothing counted twice.
+    expect(await stockOf("ep-ube")).toBe(24);
+    expect(await stockOf("ep-butter")).toBe(23);
+  });
+
+  it("refuses to refund more than was sold, to void a refunded order, or to refund a voided one", async () => {
+    const a = await sell(addProduct([], "ep-butter", lineId));
+    const line = a.lines[0].id;
+    await refundLocally(db, { saleId: a.id, kind: "refund", lines: [{ lineId: line, quantity: 1 }], method: "cash", reasonCode: "x", cashierId: "s", approverId: "o" });
+    await expect(refundLocally(db, { saleId: a.id, kind: "refund", lines: [{ lineId: line, quantity: 1 }], method: "cash", reasonCode: "x", cashierId: "s", approverId: "o" })).rejects.toBeInstanceOf(ActionError);
+    await expect(voidOrderLocally(db, { saleId: a.id, reasonCode: "duplicate", cashierId: "s", approverId: "o" })).rejects.toThrow(/refund/);
+    const b = await sell(addProduct([], "ep-ube", lineId));
+    await voidOrderLocally(db, { saleId: b.id, reasonCode: "other", note: "test", cashierId: "s", approverId: "o" });
+    await expect(refundLocally(db, { saleId: b.id, kind: "refund", lines: [{ lineId: b.lines[0].id, quantity: 1 }], method: "cash", reasonCode: "x", cashierId: "s", approverId: "o" })).rejects.toThrow(/voided/);
+  });
+
+  it("an 'Other' void needs a note", async () => {
+    const a = await sell(addProduct([], "ep-butter", lineId));
+    await expect(voidOrderLocally(db, { saleId: a.id, reasonCode: "other", cashierId: "s", approverId: "o" })).rejects.toThrow(/note/);
   });
 });

@@ -29,6 +29,12 @@ export interface SyncTransport {
   ping(): Promise<{ server_time: string }>;
   /** Uploads a QR payment photo to Storage and links it to its order. Idempotent. */
   uploadPaymentPhoto(args: PhotoUpload): Promise<void>;
+  /** Owner-approved void with a picklist reason (void_order RPC). Idempotent. */
+  voidOrder(payload: Record<string, unknown>): Promise<void>;
+  /** Full or partial refund, or line void (refund_order RPC). Idempotent on the refund id. */
+  refundOrder(payload: Record<string, unknown>): Promise<void>;
+  /** Appends an audit entry (log_audit RPC). Idempotent on its id. */
+  logAudit(entry: Record<string, unknown>): Promise<void>;
 }
 
 export type PhotoUpload = { transactionId: string; businessId: string; bytes: ArrayBuffer; mime: string };
@@ -216,6 +222,12 @@ export class SyncEngine {
         return this.transport.logPinUse(op.payload as PinUsePayload);
       case "qr_photo":
         return this.sendPhoto(op.payload as PhotoOpPayload);
+      case "void_order":
+        return this.transport.voidOrder(op.payload as Record<string, unknown>);
+      case "refund":
+        return this.transport.refundOrder(op.payload as Record<string, unknown>);
+      case "audit":
+        return this.transport.logAudit(op.payload as Record<string, unknown>);
       default:
         throw new SyncError(`This app version can't send "${op.type}" entries. Update the app.`, true);
     }

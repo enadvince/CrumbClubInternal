@@ -25,6 +25,8 @@ import { formatDateRange, timeAgo } from "@/lib/time";
 import { Logo, Spinner } from "@/components/ui";
 import { Modal } from "@/components/Modal";
 import { PinPad } from "./PinPad";
+import { OwnerPinGate } from "./OwnerPinGate";
+import { OrderHistory } from "./OrderHistory";
 import { ItemCard } from "./ItemCard";
 import { CartPanel } from "./CartPanel";
 import { MixPicker } from "./MixPicker";
@@ -67,6 +69,7 @@ export function PosApp() {
   const [discounting, setDiscounting] = useState(false);
   const [showShift, setShowShift] = useState(false);
   const [showSync, setShowSync] = useState(false);
+  const [showOrders, setShowOrders] = useState(false);
   const [ownerGate, setOwnerGate] = useState(false);
   // pin is kept only while the menu is open, so "Owner dashboard" doesn't ask for it twice.
   const [ownerMenu, setOwnerMenu] = useState<{ staffId: string; pin?: string } | null>(null);
@@ -347,6 +350,7 @@ export function PosApp() {
       <SyncPill state={syncState} summary={summary} onClick={() => setShowSync(true)} />
       {currentStaff && (
         <>
+          <button className="btn-secondary min-h-11 text-sm" onClick={() => setShowOrders(true)}>🧾 Orders</button>
           <button className="btn-secondary min-h-11 text-sm" onClick={() => setShowShift(true)}>My sales</button>
           <button className="btn-secondary min-h-11 text-sm" onClick={lock} aria-label={`Signed in as ${currentStaff.name}. Switch staff.`}>
             👤 {currentStaff.name} · Switch
@@ -378,7 +382,7 @@ export function PosApp() {
       />
       <ConnectionToast online={syncState.online} summary={summary} />
       <Modal open={ownerGate} onClose={() => setOwnerGate(false)} title="Owner PIN">
-        <PinPad staff={staff} requireOwner title="Enter an owner PIN" onUnlock={(s, pin) => {
+        <OwnerPinGate staff={staff} eventId={eventId} title="Enter an owner PIN" onApproved={(s, pin) => {
           setOwnerGate(false);
           setOwnerMenu({ staffId: s.id, pin });
           void logPinUseLocally(db, s.id, "owner_menu", eventId).then(() => engineRef.current?.requestSync());
@@ -393,9 +397,9 @@ export function PosApp() {
         ) : ownerViewState.busy ? (
           <Spinner label="Opening owner view" />
         ) : (
-          <PinPad
+          <OwnerPinGate
             staff={staff}
-            requireOwner
+            eventId={eventId}
             title="Enter an owner PIN"
             subtitle={
               <>
@@ -403,7 +407,7 @@ export function PosApp() {
                 {summary.unsyncedSales > 0 && <span className="block text-sm">{summary.unsyncedSales} unsynced sale(s) will upload when you return to the POS.</span>}
               </>
             }
-            onUnlock={(s, pin) => openOwnerView(s.id, pin)}
+            onApproved={(s, pin) => openOwnerView(s.id, pin)}
             onCancel={() => setOwnerViewGate(false)}
           />
         )}
@@ -556,12 +560,12 @@ export function PosApp() {
       )}
 
       <Modal open={voidGate && !!lastSale && undoLeft > 0} onClose={() => setVoidGate(false)} title="Void sale">
-        <PinPad
+        <OwnerPinGate
           staff={staff}
-          requireOwner
+          eventId={eventId}
           title="Owner PIN to void"
           subtitle={lastSale ? `Undo the sale of ${formatPeso(lastSale.total)}. Stock will be returned.` : undefined}
-          onUnlock={(s) => undoLast(s)}
+          onApproved={(s) => undoLast(s)}
           onCancel={() => setVoidGate(false)}
         />
       </Modal>
@@ -574,6 +578,16 @@ export function PosApp() {
       />
       <CheckoutModal open={checkingOut} total={priced.total} onClose={() => setCheckingOut(false)} onComplete={completeSale} checkQrDuplicate={checkQrDuplicate} />
       <DiscountModal open={discounting} subtotal={priced.subtotal} options={snapshot.discount_options ?? []} onClose={() => setDiscounting(false)} onApply={(d) => { setDiscount(d); setDiscounting(false); }} />
+      <OrderHistory
+        open={showOrders}
+        onClose={() => setShowOrders(false)}
+        eventId={menu.eventId}
+        staff={staff}
+        cashierId={currentStaff.id}
+        shiftId={null}
+        online={syncState.online}
+        onChanged={(m) => { setNotice(m); engineRef.current?.requestSync(); }}
+      />
       <ShiftPanel open={showShift} onClose={() => setShowShift(false)} eventId={menu.eventId} staffId={currentStaff.id} staffName={currentStaff.name} />
       {overlays}
     </main>
@@ -614,11 +628,10 @@ function RegisterDevice({ staff, online, onRegister }: { staff: SnapshotStaff[];
       ) : state.busy ? (
         <Spinner label="Registering" />
       ) : (
-        <PinPad
+        <OwnerPinGate
           staff={staff}
-          requireOwner
           title="Owner PIN to register"
-          onUnlock={async () => {
+          onApproved={async () => {
             setState({ busy: true, error: null });
             try {
               await onRegister();

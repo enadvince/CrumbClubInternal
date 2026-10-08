@@ -157,3 +157,49 @@ test("PWA manifest is served", async ({ request }) => {
   expect(json.start_url).toBe("/pos");
   expect(json.icons.length).toBeGreaterThan(1);
 });
+
+async function enterPin(scope: ReturnType<Page["getByRole"]>, pin: string) {
+  for (const d of pin) await scope.getByRole("button", { name: d, exact: true }).click();
+}
+
+test("void and refund from the order history need an owner PIN and keep the order number", async ({ page }) => {
+  await unlock(page);
+  await sellOneUbeCash(page);
+  await sellOneUbeCash(page);
+  await page.getByRole("button", { name: /Orders/ }).click();
+  const orders = page.getByRole("dialog", { name: "Orders" });
+  await expect(orders.getByTestId("order-row")).toHaveCount(2);
+  // Search by the short number staff call out.
+  await orders.getByRole("searchbox").fill("002");
+  await expect(orders.getByTestId("order-row")).toHaveCount(1);
+  await orders.getByRole("button", { name: "Void order" }).click();
+  const voidDialog = page.getByRole("dialog", { name: /Void order/ });
+  await voidDialog.getByRole("radio", { name: "Wrong item" }).click();
+  await voidDialog.getByRole("button", { name: /owner PIN/ }).click();
+  await enterPin(voidDialog, "1234");
+  await expect(orders.getByTestId("order-row").first()).toContainText("Voided");
+  await expect(orders.getByTestId("order-row").first()).toContainText(/T1-\d{6}-0002/);
+
+  await orders.getByRole("searchbox").fill("001");
+  await orders.getByRole("button", { name: "Refund" }).click();
+  const refund = page.getByRole("dialog", { name: /Refund/ });
+  await refund.getByRole("button", { name: /One more Ube Croissant/ }).click();
+  await refund.getByRole("radio", { name: "Customer changed mind" }).click();
+  await expect(refund.getByText("₱120.00")).toBeVisible();
+  await refund.getByRole("button", { name: /owner PIN/ }).click();
+  await enterPin(refund, "1234");
+  await expect(orders.getByTestId("order-row").first()).toContainText("Refunded ₱120.00");
+  await page.keyboard.press("Escape");
+  // Both croissants are back in stock.
+  await page.getByRole("tab", { name: /Individual Items/ }).click();
+  await expect(page.getByRole("button", { name: /^Ube Croissant.*24 left/ })).toBeVisible();
+});
+
+test("five wrong owner PINs lock owner PIN entry for 5 minutes", async ({ page }) => {
+  await unlock(page);
+  await page.getByRole("button", { name: /⚙ Owner/ }).click();
+  const gate = page.getByRole("dialog", { name: "Owner PIN" });
+  for (let i = 0; i < 5; i++) await enterPin(gate, "9999");
+  await expect(gate.getByText(/Too many wrong owner PINs. Try again in [45]:\d\d/)).toBeVisible();
+  await expect(gate.getByRole("button", { name: "1", exact: true })).toBeDisabled();
+});
