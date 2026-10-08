@@ -32,8 +32,8 @@ import { ShiftPanel } from "./ShiftPanel";
 import { OwnerMenu } from "./OwnerMenu";
 import { SyncPill, UnsyncedBanner } from "./SyncStatus";
 import { useWakeLock } from "./useWakeLock";
+import { CART_KEY } from "@/lib/pwa";
 
-const CART_KEY = "crumbclub-pos-cart";
 const TAB_KEY = "crumbclub-pos-tab";
 const newId = () => crypto.randomUUID();
 
@@ -107,8 +107,6 @@ export function PosApp() {
     engineRef.current = engine;
     const unsub = engine.subscribe(setSyncState);
     engine.start();
-    // Ask the browser not to evict our data under storage pressure.
-    navigator.storage?.persist?.().catch(() => {});
     return () => { unsub(); engine.stop(); engineRef.current = null; };
   }, [boot, db]);
 

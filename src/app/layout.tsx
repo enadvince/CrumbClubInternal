@@ -1,6 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
-import { ServiceWorkerRegistration } from "@/components/ServiceWorkerRegistration";
+import { PwaProvider } from "@/components/PwaProvider";
 
 export const metadata: Metadata = {
   title: "Crumb Club POS",
@@ -21,8 +21,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="en">
       <body className="min-h-dvh antialiased">
-        {children}
-        <ServiceWorkerRegistration />
+        <PwaProvider>{children}</PwaProvider>
       </body>
     </html>
   );
