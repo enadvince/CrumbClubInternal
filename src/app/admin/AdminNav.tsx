@@ -4,17 +4,20 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { getSupabase } from "@/lib/supabase/client";
 import { Logo } from "@/components/ui";
+import { ThemeToggle } from "@/components/ThemeToggle";
 import { isTabletOwnerView, OWNER_VIEW_IDLE_MS, restoreDeviceSession } from "@/lib/ownerView";
 
 const links = [
   { href: "/admin/dashboard", label: "Dashboard", icon: "📊" },
   { href: "/admin/events", label: "Events", icon: "📅" },
   { href: "/admin/transactions", label: "Transactions", icon: "🧾" },
+  { href: "/admin/reports", label: "Reports", icon: "📈" },
   { href: "/admin/products", label: "Products", icon: "🥐" },
   { href: "/admin/bundles", label: "Bundles", icon: "📦" },
   { href: "/admin/discounts", label: "Discounts", icon: "🏷️" },
   { href: "/admin/personnel", label: "Personnel", icon: "👥" },
   { href: "/admin/pin-log", label: "PIN log", icon: "🔑" },
+  { href: "/admin/audit", label: "Audit log", icon: "📜" },
 ];
 
 export function AdminNav({ businessName, email }: { businessName: string; email: string }) {
@@ -22,6 +25,9 @@ export function AdminNav({ businessName, email }: { businessName: string; email:
   const router = useRouter();
   // Owner view opened from the POS tablet with an owner PIN.
   const [onTablet, setOnTablet] = useState(false);
+  // Narrow screens: links fold into a menu.
+  const [open, setOpen] = useState(false);
+  useEffect(() => setOpen(false), [pathname]);
 
   useEffect(() => {
     isTabletOwnerView().then(setOnTablet).catch(() => {});
@@ -53,14 +59,18 @@ export function AdminNav({ businessName, email }: { businessName: string; email:
   }
 
   return (
-    <nav aria-label="Owner" className="no-print border-b border-crust bg-paper lg:sticky lg:top-0 lg:h-dvh lg:w-60 lg:shrink-0 lg:overflow-y-auto lg:border-r lg:border-b-0">
-      <div className="flex items-center justify-between px-4 py-3 lg:block lg:py-5">
+    <nav aria-label="Owner" className="no-print sticky top-0 z-20 border-b border-crust bg-paper lg:h-dvh lg:w-60 lg:shrink-0 lg:overflow-y-auto lg:border-r lg:border-b-0">
+      <div className="flex items-center justify-between gap-2 px-4 py-3 lg:block lg:py-5">
         <div>
           <Logo className="text-xl text-caramel" />
           <p className="text-xs text-ink-soft">{businessName}</p>
         </div>
+        <button className="btn-secondary min-h-11 text-sm lg:hidden" aria-expanded={open} aria-controls="owner-links" onClick={() => setOpen((o) => !o)}>
+          {open ? "✕ Close" : "☰ Menu"}
+        </button>
       </div>
-      <ul className="flex gap-1 overflow-x-auto px-2 pb-2 lg:flex-col lg:overflow-visible">
+      <div id="owner-links" className={`${open ? "block" : "hidden"} max-h-[75dvh] overflow-y-auto lg:block lg:max-h-none lg:overflow-visible`}>
+      <ul className="grid grid-cols-2 gap-1 px-2 pb-2 sm:grid-cols-3 lg:flex lg:flex-col">
         {links.map((l) => {
           const active = pathname.startsWith(l.href);
           return (
@@ -71,7 +81,7 @@ export function AdminNav({ businessName, email }: { businessName: string; email:
                 className={`relative flex min-h-11 items-center gap-2 whitespace-nowrap rounded-xl px-3 font-semibold transition-colors ${
                   active
                     ? "bg-crust text-caramel-dark before:absolute before:inset-x-3 before:bottom-0 before:h-0.5 before:rounded-full before:bg-caramel lg:before:inset-x-auto lg:before:inset-y-2 lg:before:left-0 lg:before:h-auto lg:before:w-1"
-                    : "text-ink-soft hover:bg-cream hover:text-ink"
+                    : "text-ink-soft hover:bg-cream hover:text-ink active:bg-crust"
                 }`}
               >
                 <span aria-hidden>{l.icon}</span>
@@ -81,6 +91,10 @@ export function AdminNav({ businessName, email }: { businessName: string; email:
           );
         })}
       </ul>
+      <div className="flex flex-wrap gap-1 px-2 pb-2 lg:flex-col lg:px-4">
+        <Link href="/help" className="btn-ghost min-h-11 justify-start text-sm">❓ Help</Link>
+        <ThemeToggle className="justify-start" />
+      </div>
       {onTablet && (
         <div className="mx-2 mb-2 rounded-xl bg-ube-light p-3 text-sm text-ube lg:mx-4">
           <p className="font-semibold">Owner view on the POS tablet</p>
@@ -99,6 +113,7 @@ export function AdminNav({ businessName, email }: { businessName: string; email:
         <button onClick={signOut} className="btn-ghost text-sm">Sign out</button>
       </div>
       </>)}
+      </div>
     </nav>
   );
 }

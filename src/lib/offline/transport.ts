@@ -1,31 +1,41 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Snapshot } from "../pos/types";
-import { SyncError, type SyncTransport } from "./sync";
+import { SyncError, type ClaimedDevice, type SyncTransport } from "./sync";
 
 const TIMEOUT_MS = 15_000;
 
 /**
- * Postgres errors the server raises on bad data are permanent (retrying the
- * same payload can never succeed). Everything else — network failures,
- * timeouts, auth refreshes, 5xx — is transient and retried.
+ * Whether a failed call can never succeed if retried unchanged.
+ *  - Retryable: no response (offline, timeout, aborted), 5xx, 429, 408, 401 (token refresh)
+ *    and 404 (a function not deployed yet during a rollout).
+ *  - Permanent: data the server rejects (Postgres 22xxx, 23xxx, P0xxx), permission
+ *    denied (42501), and any other 4xx. These are kept as "failed" for manual review.
  */
+export function isPermanentFailure(status: number | undefined, code: string | undefined): boolean {
+  if (code && /^(22|23|P0)/.test(code)) return true;
+  if (code === "42501") return true;
+  if (!status) return false;
+  if (status >= 500 || status === 429 || status === 408 || status === 401 || status === 404) return false;
+  return status >= 400;
+}
+
+/** Kept for callers that only have a Postgres error code. */
 export function isPermanentError(code: string | undefined): boolean {
-  if (!code) return false;
-  return /^(22|23|P0)/.test(code);
+  return isPermanentFailure(undefined, code);
 }
 
 type RpcError = { message: string; code?: string } | null;
 
-function check(error: RpcError, what: string) {
+function check(error: RpcError, status: number | undefined, what: string) {
   if (!error) return;
-  throw new SyncError(`${what}: ${error.message || "network error"}`, isPermanentError(error.code));
+  throw new SyncError(`${what}: ${error.message || "network error"}`, isPermanentFailure(status, error.code));
 }
 
 export function supabaseTransport(supabase: SupabaseClient, appVersion = "1"): SyncTransport {
   const rpc = async <T,>(fn: string, args: Record<string, unknown>, what: string): Promise<T> => {
     try {
-      const { data, error } = await supabase.rpc(fn, args).abortSignal(AbortSignal.timeout(TIMEOUT_MS));
-      check(error, what);
+      const { data, error, status } = await supabase.rpc(fn, args).abortSignal(AbortSignal.timeout(TIMEOUT_MS));
+      check(error, status, what);
       return data as T;
     } catch (err) {
       if (err instanceof SyncError) throw err;
@@ -36,7 +46,8 @@ export function supabaseTransport(supabase: SupabaseClient, appVersion = "1"): S
   return {
     async recordSale(sale) {
       // "ok" and "duplicate" both mean the server has this sale.
-      await rpc("record_sale", { p_sale: sale }, "Sale");
+      // device_sent_at lets the server measure this tablet's clock drift.
+      await rpc("record_sale", { p_sale: { ...sale, device_sent_at: new Date().toISOString() } }, "Sale");
     },
     async voidSale(a) {
       await rpc("void_sale", { p_transaction_id: a.transaction_id, p_reason: a.reason, p_staff_id: a.staff_id, p_voided_at: a.voided_at }, "Undo");
@@ -52,6 +63,45 @@ export function supabaseTransport(supabase: SupabaseClient, appVersion = "1"): S
     },
     async fetchSnapshot(eventId) {
       return rpc<Snapshot>("pos_snapshot", { p_event_id: eventId }, "Menu download");
+    },
+    async claimDeviceCode(label) {
+      return rpc<ClaimedDevice>("claim_device_code", { p_label: label ?? null }, "Device registration");
+    },
+    async ping() {
+      return rpc<{ server_time: string }>("pos_ping", {}, "Health check");
+    },
+    async uploadPaymentPhoto({ transactionId, businessId, bytes, mime }) {
+      const path = `${businessId}/${transactionId}.jpg`;
+      try {
+        const { error } = await supabase.storage.from("payment-proofs").upload(path, bytes, { contentType: mime, upsert: false });
+        // Already there means an earlier attempt uploaded it and only the response was lost.
+        if (error && !/exists|duplicate/i.test(error.message)) {
+          const status = Number((error as { statusCode?: string | number }).statusCode) || undefined;
+          throw new SyncError(`Payment photo: ${error.message}`, isPermanentFailure(status, undefined));
+        }
+      } catch (err) {
+        if (err instanceof SyncError) throw err;
+        throw new SyncError(`Payment photo: ${err instanceof Error ? err.message : "network error"}`, false);
+      }
+      await rpc("attach_payment_photo", { p_transaction_id: transactionId, p_path: path }, "Payment photo");
+    },
+    async voidOrder(payload) {
+      await rpc("void_order", { p: payload }, "Void");
+    },
+    async refundOrder(payload) {
+      await rpc("refund_order", { p: payload }, "Refund");
+    },
+    async logAudit(entry) {
+      await rpc("log_audit", { p_entry: entry }, "Audit log");
+    },
+    async openShift(payload) {
+      await rpc("open_shift", { p: payload }, "Open shift");
+    },
+    async closeShift(payload) {
+      await rpc("close_shift", { p: payload }, "Close shift");
+    },
+    async drawerMovement(payload) {
+      await rpc("record_drawer_movement", { p: payload }, "Drawer movement");
     },
     async heartbeat(count, oldest) {
       await rpc("device_heartbeat", { p_unsynced_count: count, p_oldest_unsynced_at: oldest, p_app_version: appVersion }, "Heartbeat");

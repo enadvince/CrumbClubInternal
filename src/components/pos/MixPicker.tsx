@@ -2,7 +2,7 @@
 import { useMemo, useState } from "react";
 import { Modal } from "@/components/Modal";
 import { formatPeso } from "@/lib/money";
-import { eligibleProducts } from "@/lib/pos/cart";
+import { eligibleProducts, isTracked } from "@/lib/pos/cart";
 import type { Menu, MenuBundle, Pick } from "@/lib/pos/types";
 import { tapFeedback } from "./feedback";
 
@@ -36,7 +36,7 @@ export function MixPicker({
   }
 
   return (
-    <Modal open={!!bundle} onClose={close} title={bundle ? `${bundle.name} — pick ${required}` : ""} wide>
+    <Modal open={!!bundle} onClose={close} title={bundle ? `${bundle.name}: pick ${required}` : ""} wide>
       {bundle && (
         <div className="space-y-4">
           <div className="flex items-center justify-between gap-3">
@@ -51,8 +51,10 @@ export function MixPicker({
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
             {products.map((p) => {
               const picked = picks[p.event_product_id] ?? 0;
+              const tracked = isTracked(p);
               const left = (remaining.get(p.event_product_id) ?? 0) - picked;
-              const canAdd = left > 0 && chosen < required;
+              // Out of stock on record doesn't block; adding to the cart asks for confirmation.
+              const canAdd = chosen < required;
               return (
                 <div key={p.event_product_id} className={`flex flex-col rounded-2xl border-2 ${picked ? "border-ube bg-ube-light" : "border-crust-dark bg-paper"}`}>
                   <button
@@ -60,11 +62,11 @@ export function MixPicker({
                     disabled={!canAdd}
                     onClick={() => change(p.event_product_id, 1)}
                     className="flex min-h-24 flex-1 flex-col items-start gap-1 rounded-t-2xl p-3 text-left active:scale-[0.97] disabled:opacity-50"
-                    aria-label={`Add ${p.name}. ${Math.max(0, left)} left. ${picked} picked.`}
+                    aria-label={`Add ${p.name}.${tracked ? ` ${Math.max(0, left)} left.` : ""} ${picked} picked.`}
                   >
                     <span className="font-bold leading-tight">{p.name}</span>
                     <span className="text-xs text-ink-soft">{formatPeso(p.price_centavos, { trimZeros: true })} each</span>
-                    <span className={`text-sm font-semibold ${left <= 0 ? "text-danger" : ""}`}>{left <= 0 ? "✕ None left" : `${left} left`}</span>
+                    {tracked && <span className={`text-sm font-semibold ${left <= 0 ? "text-danger" : ""}`}>{left <= 0 ? "✕ Out of stock" : `${left} left`}</span>}
                   </button>
                   <div className="flex items-center justify-between border-t border-crust-dark px-2">
                     <button type="button" className="btn-ghost min-h-12 w-12 px-0 text-xl" disabled={!picked} onClick={() => change(p.event_product_id, -1)} aria-label={`Remove one ${p.name}`}>−</button>

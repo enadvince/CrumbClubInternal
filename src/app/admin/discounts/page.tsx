@@ -1,5 +1,6 @@
 "use client";
 import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { useConfirm } from "@/components/ConfirmModal";
 import { getSupabase } from "@/lib/supabase/client";
 import { useOwner } from "../OwnerContext";
 import { EmptyState, Field, Notice, PageHeader, Spinner } from "@/components/ui";
@@ -65,6 +66,7 @@ export default function DiscountsPage() {
 }
 
 function DiscountForm({ option, onClose, onSaved }: { option: DiscountOptionRow | "new" | null; onClose: () => void; onSaved: () => void }) {
+  const [ask, confirmEl] = useConfirm();
   const { businessId } = useOwner();
   const isNew = option === "new";
   const [name, setName] = useState("");
@@ -104,13 +106,15 @@ function DiscountForm({ option, onClose, onSaved }: { option: DiscountOptionRow 
   }
 
   async function remove() {
-    if (!option || option === "new" || !confirm(`Delete “${option.name}”? Past sales keep their discount.`)) return;
+    if (!option || option === "new" || !(await ask({ title: "Delete discount?", body: `Delete “${option.name}”? Past sales keep their discount.`, confirmLabel: "Delete" }))) return;
     const { error } = await getSupabase().from("discount_options").delete().eq("id", option.id);
     if (error) return setError(errorMessage(error));
     onSaved();
   }
 
   return (
+    <>
+      {confirmEl}
     <Modal open={!!option} onClose={onClose} title={isNew ? "Add discount" : "Edit discount"}>
       <form onSubmit={submit} className="space-y-4">
         {error && <Notice tone="danger">{error}</Notice>}
@@ -146,5 +150,6 @@ function DiscountForm({ option, onClose, onSaved }: { option: DiscountOptionRow 
         </div>
       </form>
     </Modal>
+    </>
   );
 }

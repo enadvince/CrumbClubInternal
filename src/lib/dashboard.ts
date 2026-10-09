@@ -82,7 +82,7 @@ export function insights(r: DashboardReport, previous?: DashboardReport | null, 
 
   for (const s of [...r.sell_through].filter((s) => s.sold_out_at).sort((a, b) => a.sold_out_at!.localeCompare(b.sold_out_at!))) {
     const after = s.first_sale_at ? `, ${duration(new Date(s.sold_out_at!).getTime() - new Date(s.first_sale_at).getTime())} after the first sale` : "";
-    out.push(`${s.product} sold out at ${formatTime(s.sold_out_at!)}${after} — consider bringing more.`);
+    out.push(`${s.product} sold out at ${formatTime(s.sold_out_at!)}${after}. Consider bringing more.`);
   }
 
   // The bundle that gives up the most margin per piece.
@@ -99,7 +99,7 @@ export function insights(r: DashboardReport, previous?: DashboardReport | null, 
     .filter((s) => s.event_status === "closed" && s.rate != null && s.rate < 0.5 && s.stocked >= 10)
     .sort((a, b) => a.rate! - b.rate!)
     .slice(0, 2)
-    .forEach((s) => out.push(`Only ${Math.round(s.rate! * 100)}% of ${s.product} sold at ${s.event_name} — consider bringing fewer.`));
+    .forEach((s) => out.push(`Only ${Math.round(s.rate! * 100)}% of ${s.product} sold at ${s.event_name}. Consider bringing fewer.`));
 
   const peak = [...r.by_hour].sort((a, b) => b.revenue_centavos - a.revenue_centavos)[0];
   if (peak && r.by_hour.length > 1) {
@@ -114,7 +114,7 @@ export function insights(r: DashboardReport, previous?: DashboardReport | null, 
 
   const wasteTotal = r.waste.waste_cost_centavos + r.unsold.unsold_cost_centavos;
   if (k.cost_centavos > 0 && wasteTotal / k.cost_centavos >= 0.15) {
-    out.push(`Waste and unsold stock cost ${formatPeso(wasteTotal, { trimZeros: true })} — ${Math.round((wasteTotal / k.cost_centavos) * 100)}% of the cost of what sold.`);
+    out.push(`Waste and unsold stock cost ${formatPeso(wasteTotal, { trimZeros: true })}, ${Math.round((wasteTotal / k.cost_centavos) * 100)}% of the cost of what sold.`);
   }
   return out.slice(0, 6);
 }

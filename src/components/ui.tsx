@@ -48,8 +48,8 @@ export function EmptyState({ children }: { children: ReactNode }) {
 export function Spinner({ label = "Loading" }: { label?: string }) {
   return (
     <div role="status" className="flex items-center gap-2 p-4 text-ink-soft">
-      <span aria-hidden className="h-5 w-5 animate-spin rounded-full border-2 border-crust-dark border-t-caramel" />
-      {label}…
+      <span aria-hidden className="h-5 w-5 rounded-full motion-safe:animate-spin border-2 border-crust-dark border-t-caramel" />
+      {label}...
     </div>
   );
 }

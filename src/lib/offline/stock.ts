@@ -41,21 +41,39 @@ export function localAvailability(cached: CachedSnapshot | undefined, ops: reado
   return out;
 }
 
-export type UnsyncedSummary = { pending: number; failed: number; unsyncedSales: number; oldestUnsyncedAt: number | null };
+export type UnsyncedSummary = {
+  /** Entries waiting or being sent (any type) */
+  pending: number;
+  /** Entries the server rejected (any type) */
+  failed: number;
+  /** Orders not yet on the server (pending, syncing or failed) */
+  unsyncedSales: number;
+  pendingSales: number;
+  failedSales: number;
+  oldestUnsyncedAt: number | null;
+};
 
 export function summarizeOutbox(ops: readonly OutboxOp[]): UnsyncedSummary {
   let pending = 0;
   let failed = 0;
   let unsyncedSales = 0;
+  let pendingSales = 0;
+  let failedSales = 0;
   let oldest: number | null = null;
   for (const op of ops) {
     if (op.status === "synced") continue;
-    if (op.status === "pending") pending++;
-    else failed++;
-    if (op.type === "sale") unsyncedSales++;
+    const isSale = op.type === "sale";
+    if (op.status === "failed") {
+      failed++;
+      if (isSale) failedSales++;
+    } else {
+      pending++; // pending or syncing
+      if (isSale) pendingSales++;
+    }
+    if (isSale) unsyncedSales++;
     if (oldest === null || op.createdAt < oldest) oldest = op.createdAt;
   }
-  return { pending, failed, unsyncedSales, oldestUnsyncedAt: oldest };
+  return { pending, failed, unsyncedSales, pendingSales, failedSales, oldestUnsyncedAt: oldest };
 }
 
 export const STALE_UNSYNCED_MS = 30 * 60 * 1000;

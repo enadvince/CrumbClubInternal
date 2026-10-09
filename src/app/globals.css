@@ -18,6 +18,10 @@
   --color-warn-light: #fff1cc;
   --color-danger: #a3221b;
   --color-danger-light: #fde6e4;
+  --color-info: #1d4f91;
+  --color-info-light: #e3edfa;
+  --color-mute: #4a4f57;
+  --color-mute-light: #eceef1;
   /* Chart series (validated: lightness, chroma, CVD separation, 3:1 on white) */
   --color-series-1: #b0601a;
   --color-series-2: #7652b5;
@@ -35,10 +39,65 @@ html, body {
   color: var(--color-ink);
 }
 
+/*
+ * Dark mode (toggle in the menus, remembered per device; "system" follows the OS).
+ * The inline script in app/layout.tsx sets data-theme before first paint.
+ */
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --color-cream: #17120e;
+  --color-paper: #221a14;
+  --color-crust: #2f251d;
+  --color-crust-dark: #4a3b2f;
+  --color-ink: #f6ece1;
+  --color-ink-soft: #cbb9a6;
+  --color-caramel: #a85b1a;
+  --color-caramel-dark: #8c4a12;
+  --color-ube: #7f61c8;
+  --color-ube-light: #16101f;
+  --color-ok: #2a8f55;
+  --color-ok-light: #0c1e13;
+  --color-warn: #e3ac3c;
+  --color-warn-light: #2e2209;
+  --color-danger: #c9413b;
+  --color-danger-light: #240c0b;
+  --color-info: #7cb0ff;
+  --color-info-light: #152640;
+  --color-mute: #b9c0ca;
+  --color-mute-light: #2a2f35;
+  --color-grid: #3a2f26;
+  --shadow-card: 0 0 0 1px rgb(255 255 255 / 0.08), 0 1px 2px 0 rgb(0 0 0 / 0.4);
+  --shadow-card-hover: 0 0 0 1px rgb(255 255 255 / 0.14), 0 4px 10px -2px rgb(0 0 0 / 0.5);
+  --shadow-btn: 0 1px 2px 0 rgb(0 0 0 / 0.4), inset 0 1px 0 0 rgb(255 255 255 / 0.1);
+}
+/* Coloured text needs lighter shades on dark surfaces than the same colour used as a fill. */
+:root[data-theme="dark"] .text-caramel, :root[data-theme="dark"] .text-caramel-dark { color: #e09a5c; }
+:root[data-theme="dark"] .text-ube { color: #c2aef2; }
+:root[data-theme="dark"] .text-ok { color: #74d69d; }
+:root[data-theme="dark"] .text-danger { color: #f29891; }
+
+/* Respect reduced motion: no spinners, pulses, pops or smooth scrolling. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
 body {
   -webkit-tap-highlight-color: transparent;
   font-feature-settings: "tnum" 1; /* tabular figures for prices */
 }
+
+/* Skip link: hidden until focused with the keyboard. */
+.skip-link {
+  position: absolute; left: 0.75rem; top: -4rem; z-index: 100;
+  background: var(--color-ink); color: var(--color-paper);
+  padding: 0.75rem 1rem; border-radius: 0.75rem; font-weight: 700;
+}
+.skip-link:focus { top: 0.75rem; }
 
 /* Visible keyboard focus everywhere */
 :focus-visible {
@@ -52,15 +111,16 @@ body {
       active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-50;
   }
 
-@utility btn-primary { @apply btn bg-caramel text-white shadow-(--shadow-btn) hover:bg-caramel-dark; }
+/* Every button has a hover and a pressed (active) state, and its text never matches its background. */
+@utility btn-primary { @apply btn bg-caramel text-white shadow-(--shadow-btn) hover:bg-caramel-dark active:bg-caramel-dark active:brightness-90; }
 
-@utility btn-ube { @apply btn bg-ube text-white shadow-(--shadow-btn) hover:brightness-110; }
+@utility btn-ube { @apply btn bg-ube text-white shadow-(--shadow-btn) hover:brightness-110 active:brightness-90; }
 
-@utility btn-secondary { @apply btn bg-paper text-ink shadow-(--shadow-card) hover:bg-cream hover:shadow-(--shadow-card-hover); }
+@utility btn-secondary { @apply btn bg-paper text-ink shadow-(--shadow-card) hover:bg-cream hover:shadow-(--shadow-card-hover) active:bg-crust; }
 
-@utility btn-danger { @apply btn bg-danger text-white shadow-(--shadow-btn) hover:brightness-110; }
+@utility btn-danger { @apply btn bg-danger text-white shadow-(--shadow-btn) hover:brightness-110 active:brightness-90; }
 
-@utility btn-ghost { @apply btn text-ink hover:bg-crust; }
+@utility btn-ghost { @apply btn text-ink hover:bg-crust active:bg-crust-dark; }
 
 @utility card { @apply rounded-2xl bg-paper shadow-(--shadow-card); }
 
@@ -77,9 +137,15 @@ body {
 
 @utility badge { @apply inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-bold; }
 
+/* Shift reports and export summaries print on A4 (there is no receipt printer). */
+@page { size: A4; margin: 14mm 12mm; }
 @media print {
-  .no-print { display: none !important; }
-  body { background: white; }
+  .no-print, header.pos-header, nav, dialog::backdrop { display: none !important; }
+  html, body { background: white !important; color: black !important; }
+  .print-page { max-width: none !important; padding: 0 !important; }
+  .print-page section { break-inside: avoid; }
+  .card { box-shadow: none !important; border: 1px solid #999 !important; }
+  a[href^="http"]::after { content: " (" attr(href) ")"; font-size: 0.8em; }
 }
 
 @keyframes tapflash {

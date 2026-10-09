@@ -27,7 +27,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
     <OwnerProvider value={{ businessId: membership.business_id, businessName: membership.business_name, userId: user.id }}>
       <div className="min-h-dvh lg:flex">
         <AdminNav businessName={membership.business_name} email={user.email ?? ""} />
-        <main className="min-w-0 flex-1 px-4 py-6 lg:px-10 lg:py-8"><div className="mx-auto max-w-7xl">{children}</div></main>
+        <main id="main" className="min-w-0 flex-1 px-4 py-6 lg:px-10 lg:py-8"><div className="mx-auto max-w-7xl">{children}</div></main>
       </div>
     </OwnerProvider>
   );

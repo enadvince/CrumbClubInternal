@@ -3,7 +3,7 @@ import type { EventStatus } from "@/lib/types";
 const styles: Record<EventStatus, string> = {
   draft: "bg-crust text-ink-soft",
   live: "bg-ok-light text-ok",
-  closed: "bg-ink text-white",
+  closed: "bg-ink text-paper",
 };
 const icons: Record<EventStatus, string> = { draft: "✎", live: "●", closed: "🔒" };
 

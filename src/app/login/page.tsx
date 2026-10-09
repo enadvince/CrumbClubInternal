@@ -1,5 +1,7 @@
 "use client";
 import { useState, type FormEvent } from "react";
+import { SecretInput } from "@/components/SecretInput";
+import { ContactButton } from "@/components/ContactButton";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense } from "react";
 import { getSupabase } from "@/lib/supabase/client";
@@ -102,15 +104,15 @@ function LoginForm() {
       </Field>
       {(step === "password" || step === "signup") && (
         <Field label="Password" htmlFor="password" hint={step === "signup" ? "At least 8 characters." : undefined}>
-          <input id="password" type="password" autoFocus minLength={8} required className="input"
+          <SecretInput id="password" autoFocus minLength={8} required
             autoComplete={step === "signup" ? "new-password" : "current-password"}
             value={password} onChange={(e) => setPassword(e.target.value)} />
         </Field>
       )}
       {step === "pin" && (
         <Field label="Your 4-digit PIN" htmlFor="pin">
-          <input id="pin" type="password" autoFocus required inputMode="numeric" autoComplete="off" pattern="\d{4}" maxLength={4}
-            className="input text-center text-2xl tracking-[0.6em]" value={pin}
+          <SecretInput id="pin" autoFocus required inputMode="numeric" autoComplete="off" pattern="\d{4}" maxLength={4}
+            className="text-center text-2xl tracking-[0.6em]" value={pin}
             onChange={(e) => setPin(e.target.value.replace(/\D/g, "").slice(0, 4))} />
         </Field>
       )}
@@ -129,11 +131,12 @@ function LoginForm() {
 
 export default function LoginPage() {
   return (
-    <main className="flex min-h-dvh flex-col items-center justify-center gap-6 p-4">
+    <main id="main" className="flex min-h-dvh flex-col items-center justify-center gap-6 p-4">
       <Logo className="text-3xl text-caramel" />
       <Suspense>
         <LoginForm />
       </Suspense>
+      <ContactButton page="login" />
     </main>
   );
 }

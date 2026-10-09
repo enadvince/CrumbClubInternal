@@ -20,5 +20,6 @@ def icon(size, maskable=False):
 
 for s in (192, 512):
     icon(s).save(f"public/icon-{s}.png")
-icon(512, maskable=True).save("public/icon-maskable-512.png")
+for s in (192, 512):
+    icon(s, maskable=True).save(f"public/icon-maskable-{s}.png")
 icon(180).save("public/apple-touch-icon.png")

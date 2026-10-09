@@ -34,4 +34,15 @@ for t in "$HERE"/*.test.sql; do
     echo "FAIL $(basename "$t")"; cat "$WORK/out"; status=1
   fi
 done
+# Integration tests: the app's sync engine against these same SQL functions.
+if [ -z "${SKIP_INTEGRATION:-}" ]; then
+  echo "integration: vitest (sync engine against the real RPCs)"
+  if PGHOST="$WORK" PGPORT="$PORT" PGUSER=postgres PGDATABASE=postgres \
+     npx vitest run --config "$ROOT/vitest.integration.config.ts" --root "$ROOT" >"$WORK/int" 2>&1; then
+    grep -E "Tests|Test Files" "$WORK/int" | sed 's/^/  /'
+    echo "PASS integration"
+  else
+    cat "$WORK/int"; echo "FAIL integration"; status=1
+  fi
+fi
 exit $status

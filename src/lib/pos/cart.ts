@@ -59,38 +59,48 @@ export function cartDemand(cart: readonly CartLine[], menu: Menu): Map<string, n
   return demand;
 }
 
-/** Stock left for each product after what's already in the cart. */
+export const isTracked = (p: MenuProduct | undefined): boolean => p?.track_stock !== false;
+
+/** Low stock threshold for a product: its own, or the event's default. */
+export const lowThreshold = (menu: Menu, p: MenuProduct): number => p.low_stock_threshold ?? menu.lowStockThreshold;
+
+/**
+ * Stock left for each product after what's already in the cart. Products without
+ * stock tracking (made to order) never run out: Infinity.
+ */
 export function remainingStock(menu: Menu, cart: readonly CartLine[]): Map<string, number> {
   const demand = cartDemand(cart, menu);
   const remaining = new Map<string, number>();
-  for (const [id, p] of menu.products) remaining.set(id, p.stock - (demand.get(id) ?? 0));
+  for (const [id, p] of menu.products) remaining.set(id, isTracked(p) ? p.stock - (demand.get(id) ?? 0) : Infinity);
   return remaining;
 }
 
 // ---------------------------------------------------------------------------
-// Availability
+// Availability. Low or out of stock never blocks a sale (the count on record may be
+// wrong); only items an owner marked unavailable can't be added. Adding something
+// that would go below zero asks for confirmation first (see addWouldOversell).
 // ---------------------------------------------------------------------------
 
 export type ItemState = {
+  /** false only when an owner marked it unavailable */
   canAdd: boolean;
-  /** Units left after the cart (products) / how many more bundles fit (fixed) / pickable pool (mix) */
+  /** Units left after the cart (products) / how many more bundles fit (fixed) / pickable pool (mix). Infinity if untracked. */
   remaining: number;
-  status: "ok" | "low" | "sold_out" | "unavailable" | "in_cart";
+  status: "ok" | "low" | "out" | "unavailable";
 };
 
 export function productState(menu: Menu, eventProductId: string, remaining: ReadonlyMap<string, number>): ItemState {
   const p = menu.products.get(eventProductId);
   if (!p || !p.is_available) return { canAdd: false, remaining: 0, status: "unavailable" };
+  if (!isTracked(p)) return { canAdd: true, remaining: Infinity, status: "ok" };
   const left = remaining.get(eventProductId) ?? 0;
-  if (p.stock <= 0) return { canAdd: false, remaining: 0, status: "sold_out" };
-  if (left <= 0) return { canAdd: false, remaining: 0, status: "in_cart" };
-  return { canAdd: true, remaining: left, status: left <= menu.lowStockThreshold ? "low" : "ok" };
+  if (left <= 0) return { canAdd: true, remaining: 0, status: "out" };
+  return { canAdd: true, remaining: left, status: left <= lowThreshold(menu, p) ? "low" : "ok" };
 }
 
 /**
- * Fixed bundle: available while every component has enough stock for one more.
- * Mix-and-match: available while the eligible products still in stock add up
- * to at least the required count.
+ * Fixed bundle: how many more fit given every tracked component's stock.
+ * Mix-and-match: the eligible products still in stock must add up to the required count.
  */
 export function bundleState(menu: Menu, eventBundleId: string, remaining: ReadonlyMap<string, number>): ItemState {
   const b = menu.bundles.get(eventBundleId);
@@ -99,27 +109,20 @@ export function bundleState(menu: Menu, eventBundleId: string, remaining: Readon
   if (b.type === "fixed") {
     if (b.items.length === 0) return { canAdd: false, remaining: 0, status: "unavailable" };
     let fits = Infinity;
-    let fitsIgnoringCart = Infinity;
     for (const item of b.items) {
       const p = item.event_product_id ? menu.products.get(item.event_product_id) : undefined;
       if (!p || !p.is_available) return { canAdd: false, remaining: 0, status: "unavailable" };
+      if (!isTracked(p)) continue;
       fits = Math.min(fits, Math.floor(Math.max(0, remaining.get(p.event_product_id) ?? 0) / item.quantity));
-      fitsIgnoringCart = Math.min(fitsIgnoringCart, Math.floor(Math.max(0, p.stock) / item.quantity));
     }
-    if (fitsIgnoringCart <= 0) return { canAdd: false, remaining: 0, status: "sold_out" };
-    if (fits <= 0) return { canAdd: false, remaining: 0, status: "in_cart" };
+    if (fits <= 0) return { canAdd: true, remaining: 0, status: "out" };
     return { canAdd: true, remaining: fits, status: fits <= Math.max(1, Math.floor(menu.lowStockThreshold / 2)) ? "low" : "ok" };
   }
 
   const required = b.required_count ?? 1;
   let pool = 0;
-  let poolIgnoringCart = 0;
-  for (const p of eligibleProducts(menu, b)) {
-    pool += Math.max(0, remaining.get(p.event_product_id) ?? 0);
-    poolIgnoringCart += Math.max(0, p.stock);
-  }
-  if (poolIgnoringCart < required) return { canAdd: false, remaining: 0, status: "sold_out" };
-  if (pool < required) return { canAdd: false, remaining: 0, status: "in_cart" };
+  for (const p of eligibleProducts(menu, b)) pool += isTracked(p) ? Math.max(0, remaining.get(p.event_product_id) ?? 0) : Infinity;
+  if (pool < required) return { canAdd: true, remaining: 0, status: "out" };
   const fits = Math.floor(pool / required);
   return { canAdd: true, remaining: fits, status: fits <= 1 ? "low" : "ok" };
 }
@@ -132,18 +135,29 @@ export function eligibleProducts(menu: Menu, bundle: MenuBundle): MenuProduct[] 
     .sort((a, b) => a.name.localeCompare(b.name));
 }
 
-/** Whether a line's quantity can go up by one given current stock. */
+/** Tracked products a new line would take below zero (empty: fine to add without asking). */
+export function addWouldOversell(menu: Menu, cart: readonly CartLine[], line: CartLine): MenuProduct[] {
+  const remaining = remainingStock(menu, cart);
+  const short: MenuProduct[] = [];
+  for (const c of lineComponents(line, menu)) {
+    const p = menu.products.get(c.eventProductId);
+    if (p && isTracked(p) && (remaining.get(c.eventProductId) ?? 0) < c.quantity) short.push(p);
+  }
+  return short;
+}
+
+/** Whether a cart line's + button can be used (only unavailable items are blocked). */
 export function canIncrement(menu: Menu, cart: readonly CartLine[], lineId: string): boolean {
   const line = cart.find((l) => l.id === lineId);
   if (!line) return false;
-  const remaining = remainingStock(menu, cart);
-  for (const c of lineComponents({ ...line, quantity: 1 }, menu)) {
-    const p = menu.products.get(c.eventProductId);
-    if (!p || !p.is_available) return false;
-    if ((remaining.get(c.eventProductId) ?? 0) < c.quantity) return false;
-  }
   if (line.kind === "bundle" && !menu.bundles.get(line.eventBundleId)?.is_available) return false;
-  return true;
+  return lineComponents({ ...line, quantity: 1 }, menu).every((c) => menu.products.get(c.eventProductId)?.is_available);
+}
+
+/** Tracked products one more of this line would take below zero. */
+export function incrementWouldOversell(menu: Menu, cart: readonly CartLine[], lineId: string): MenuProduct[] {
+  const line = cart.find((l) => l.id === lineId);
+  return line ? addWouldOversell(menu, cart, { ...line, quantity: 1 }) : [];
 }
 
 // ---------------------------------------------------------------------------

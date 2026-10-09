@@ -2,7 +2,8 @@
 import { useEffect, useState } from "react";
 import { Modal } from "@/components/Modal";
 import { formatPeso, pesos } from "@/lib/money";
-import type { PaymentDetails } from "@/lib/pos/types";
+import type { PaymentDetails, PaymentPhoto } from "@/lib/pos/types";
+import { compressPhoto } from "@/lib/pos/photo";
 import { tapFeedback } from "./feedback";
 
 const QUICK = [100, 200, 500, 1000];
@@ -23,6 +24,8 @@ export function CheckoutModal({
   const [reference, setReference] = useState("");
   const [qrConfirmed, setQrConfirmed] = useState(false);
   const [duplicate, setDuplicate] = useState(false);
+  const [photo, setPhoto] = useState<{ data: PaymentPhoto; url: string } | null>(null);
+  const [photoBusy, setPhotoBusy] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -30,8 +33,23 @@ export function CheckoutModal({
     if (open) {
       setMethod("cash"); setReceived(null); setTyped(""); setReference(""); setQrConfirmed(false);
       setDuplicate(false); setBusy(false); setError(null);
+      setPhoto((p) => { if (p) URL.revokeObjectURL(p.url); return null; });
     }
   }, [open]);
+
+  async function takePhoto(file: File | undefined) {
+    if (!file) return;
+    setPhotoBusy(true);
+    try {
+      const data = await compressPhoto(file);
+      const url = URL.createObjectURL(new Blob([data.bytes], { type: data.mime }));
+      setPhoto((p) => { if (p) URL.revokeObjectURL(p.url); return { data, url }; });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Couldn't use that photo");
+    } finally {
+      setPhotoBusy(false);
+    }
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -64,7 +82,9 @@ export function CheckoutModal({
     setBusy(true);
     setError(null);
     try {
-      await onComplete(method === "cash" ? { method: "cash", cashReceived: received! } : { method: "qr_ph", reference: reference.trim() });
+      await onComplete(method === "cash"
+        ? { method: "cash", cashReceived: received! }
+        : { method: "qr_ph", reference: reference.trim(), photo: photo?.data ?? null });
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not save the sale");
       setBusy(false);
@@ -98,7 +118,7 @@ export function CheckoutModal({
             <div className="space-y-3">
               <div className="rounded-xl bg-cream p-3">
                 <p className="text-sm text-ink-soft">Cash received</p>
-                <p className="text-3xl font-black tabular-nums" aria-live="polite">{received == null ? "—" : formatPeso(received)}</p>
+                <p className="text-3xl font-black tabular-nums" aria-live="polite">{received == null ? "-" : formatPeso(received)}</p>
               </div>
               <div className="grid grid-cols-3 gap-2">
                 <button className="btn-secondary h-14 text-lg" onClick={() => quick("exact")}>Exact</button>
@@ -107,8 +127,8 @@ export function CheckoutModal({
                 ))}
               </div>
               <div className={`rounded-xl p-3 ${change == null ? "bg-cream" : change < 0 ? "bg-danger-light text-danger" : "bg-ok-light text-ok"}`} aria-live="polite">
-                <p className="text-sm font-semibold">{change != null && change < 0 ? "⚠ Not enough cash — short by" : "Change due"}</p>
-                <p className="text-4xl font-black tabular-nums">{change == null ? "—" : formatPeso(Math.abs(change))}</p>
+                <p className="text-sm font-semibold">{change != null && change < 0 ? "⚠ Not enough cash. Short by" : "Change due"}</p>
+                <p className="text-4xl font-black tabular-nums">{change == null ? "-" : formatPeso(Math.abs(change))}</p>
               </div>
             </div>
             <div className="grid grid-cols-3 gap-2">
@@ -147,6 +167,18 @@ export function CheckoutModal({
               <input type="checkbox" className="h-6 w-6 accent-caramel" checked={qrConfirmed} onChange={(e) => setQrConfirmed(e.target.checked)} />
               <span className="font-semibold">I saw the payment of {formatPeso(total)} in the GCash merchant notification</span>
             </label>
+            <div className="flex flex-wrap items-center gap-3 rounded-xl bg-cream p-3">
+              {photo ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={photo.url} alt="Payment confirmation photo" className="h-16 w-16 rounded-lg object-cover" />
+              ) : null}
+              <label className="btn-secondary min-h-12 cursor-pointer">
+                <input type="file" accept="image/*" capture="environment" className="sr-only" onChange={(e) => { void takePhoto(e.target.files?.[0]); e.target.value = ""; }} />
+                {photoBusy ? "Processing..." : photo ? "📷 Retake photo" : "📷 Photo of payment (optional)"}
+              </label>
+              {photo && <button className="btn-ghost min-h-12" onClick={() => setPhoto((p) => { if (p) URL.revokeObjectURL(p.url); return null; })}>Remove</button>}
+              <p className="w-full text-xs text-ink-soft">QR payments are saved as awaiting verification. An owner confirms them against the GCash history.</p>
+            </div>
           </div>
         )}
 

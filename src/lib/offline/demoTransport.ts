@@ -11,8 +11,10 @@ import { SyncError, type SyncTransport } from "./sync";
  */
 const KEY = "crumbclub-demo-server";
 
+type DemoRefund = { components: { event_product_id: string; quantity: number }[] };
 type DemoState = {
-  sales: Record<string, { lines: SalePayload["lines"]; status: "completed" | "voided"; qr: string | null }>;
+  refunds?: Record<string, DemoRefund>;
+  sales: Record<string, { lines: SalePayload["lines"]; status: "completed" | "voided"; qr: string | null; orderNumber?: string }>;
   adjustments: Record<string, { event_product_id: string; quantity_change: number }>;
   availability: Record<string, boolean>;
 };
@@ -36,6 +38,16 @@ function staff(): Snapshot["staff"] {
   return staffCache;
 }
 
+/** Highest order sequence per day the demo server has seen, like the real snapshot sends. */
+function counters(s: DemoState): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const sale of Object.values(s.sales)) {
+    const m = /^T\d+-(\d{6})-(\d+)$/.exec(sale.orderNumber ?? "");
+    if (m) out[m[1]] = Math.max(out[m[1]] ?? 0, Number(m[2]));
+  }
+  return out;
+}
+
 export function demoTransport(): SyncTransport {
   const guard = async () => {
     await new Promise((r) => setTimeout(r, 120));
@@ -45,7 +57,7 @@ export function demoTransport(): SyncTransport {
     async recordSale(sale) {
       await guard();
       const s = load();
-      s.sales[sale.id] ??= { lines: sale.lines, status: "completed", qr: sale.qr_reference };
+      s.sales[sale.id] ??= { lines: sale.lines, status: "completed", qr: sale.qr_reference, orderNumber: sale.order_number };
       save(s);
     },
     async voidSale(a) {
@@ -82,13 +94,63 @@ export function demoTransport(): SyncTransport {
           for (const l of sale.lines) for (const c of l.components) if (c.event_product_id === p.event_product_id) stock -= c.quantity;
         }
         for (const a of Object.values(s.adjustments)) if (a.event_product_id === p.event_product_id) stock += a.quantity_change;
+        for (const r of Object.values(s.refunds ?? {})) for (const c of r.components) if (c.event_product_id === p.event_product_id) stock += c.quantity;
         return { ...p, stock, is_available: s.availability[p.event_product_id] ?? p.is_available };
       });
       snap.voided_transaction_ids = Object.entries(s.sales).filter(([, v]) => v.status === "voided").map(([k]) => k);
       snap.recent_qr_refs = Object.values(s.sales).map((v) => v.qr).filter((r): r is string => !!r);
+      snap.device = { id: "demo-device", code: "T1", label: "Demo tablet", order_counters: counters(s) };
+      snap.business = { ...snap.business, variance_threshold_centavos: 5000 };
       return snap;
     },
     async heartbeat() {},
+    async voidOrder(p) {
+      await guard();
+      const s = load();
+      const sale = s.sales[p.transaction_id as string];
+      if (!sale) throw new SyncError("order not found; it must sync before it can be voided", true);
+      sale.status = "voided";
+      save(s);
+    },
+    async refundOrder(p) {
+      await guard();
+      const s = load();
+      const sale = s.sales[p.transaction_id as string];
+      if (!sale) throw new SyncError("order not found; it must sync before it can be refunded", true);
+      s.refunds ??= {};
+      if (!s.refunds[p.id as string]) {
+        const components: DemoRefund["components"] = [];
+        for (const rl of p.lines as { transaction_line_id: string; quantity: number }[]) {
+          const line = sale.lines.find((l) => l.id === rl.transaction_line_id);
+          for (const c of line?.components ?? []) components.push({ event_product_id: c.event_product_id, quantity: Math.floor((c.quantity * rl.quantity) / line!.quantity) });
+        }
+        s.refunds[p.id as string] = { components };
+      }
+      save(s);
+    },
+    async logAudit() {
+      await guard();
+    },
+    async openShift() {
+      await guard();
+    },
+    async closeShift() {
+      await guard();
+    },
+    async drawerMovement() {
+      await guard();
+    },
+    async uploadPaymentPhoto() {
+      await guard();
+    },
+    async claimDeviceCode() {
+      await guard();
+      return { device_id: "demo-device", device_code: "T1", label: "Demo tablet" };
+    },
+    async ping() {
+      await guard();
+      return { server_time: new Date().toISOString() };
+    },
   };
 }
 

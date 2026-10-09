@@ -1,6 +1,10 @@
 "use client";
 import { useCallback, useEffect, useState } from "react";
 import { getSupabase } from "@/lib/supabase/client";
+import { CopyButton } from "@/components/CopyButton";
+import { BackToTop, ScrollProgress } from "@/components/ScrollAids";
+import { SecretInput } from "@/components/SecretInput";
+import { VOID_REASONS } from "@/lib/pos/reasons";
 import { EmptyState, Field, Notice, PageHeader, Spinner } from "@/components/ui";
 import { Modal } from "@/components/Modal";
 import { formatPeso } from "@/lib/money";
@@ -67,6 +71,8 @@ export default function TransactionsPage() {
 
   return (
     <>
+      <ScrollProgress />
+      <BackToTop />
       <PageHeader
         title="Transactions"
         subtitle="Every sale, including voids. Nothing is ever deleted."
@@ -89,6 +95,9 @@ export default function TransactionsPage() {
         </Field>
         <Field label="To" htmlFor="f-to">
           <input id="f-to" type="date" className="input" value={filters.to ?? ""} min={filters.from} onChange={(e) => set({ to: e.target.value || undefined })} />
+        </Field>
+        <Field label="Order number" htmlFor="f-order">
+          <input id="f-order" className="input" placeholder="e.g. 0042 or T1-261008" value={filters.orderSearch ?? ""} onChange={(e) => set({ orderSearch: e.target.value || undefined })} />
         </Field>
         <Field label="QR Ph reference" htmlFor="f-qr">
           <input id="f-qr" className="input" inputMode="numeric" placeholder="Search reference" value={filters.qrSearch ?? ""} onChange={(e) => set({ qrSearch: e.target.value || undefined })} />
@@ -128,6 +137,7 @@ export default function TransactionsPage() {
               <thead className="bg-cream text-left text-ink-soft">
                 <tr>
                   <th className="p-3 font-semibold">Time</th>
+                  <th className="p-3 font-semibold">Order</th>
                   <th className="p-3 font-semibold">Event</th>
                   <th className="p-3 font-semibold">Staff</th>
                   <th className="p-3 font-semibold">Items</th>
@@ -144,6 +154,7 @@ export default function TransactionsPage() {
                         {formatDateTime(t.client_created_at)}
                       </button>
                     </td>
+                    <td className="p-3 font-mono whitespace-nowrap">{t.order_number}</td>
                     <td className="p-3">{t.events?.name}</td>
                     <td className="p-3">{t.staff?.name}</td>
                     <td className="p-3">{t.item_count}{t.has_bundle && <span className="badge ml-1 bg-ube-light text-ube">Bundle</span>}</td>
@@ -172,10 +183,36 @@ const FLAG_LABEL: Record<string, string> = {
   event_not_live: "Event not live",
 };
 
+/** QR payment: awaiting verification or verified (owner toggles it), plus the optional photo. */
+function PaymentVerification({ txn }: { txn: TxnRow }) {
+  const [status, setStatus] = useState(txn.payment_status);
+  const [photoUrl, setPhotoUrl] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  useEffect(() => {
+    if (!txn.payment_photo_path) return;
+    getSupabase().storage.from("payment-proofs").createSignedUrl(txn.payment_photo_path, 600)
+      .then(({ data }) => setPhotoUrl(data?.signedUrl ?? null));
+  }, [txn.payment_photo_path]);
+  async function toggle() {
+    const verify = status !== "verified";
+    const { error } = await getSupabase().rpc("set_payment_verified", { p_transaction_id: txn.id, p_verified: verify });
+    if (error) return setErr(errorMessage(error));
+    setStatus(verify ? "verified" : "awaiting_verification");
+  }
+  return (
+    <span className="inline-flex flex-wrap items-center justify-end gap-2">
+      <span className={`badge ${status === "verified" ? "bg-ok-light text-ok" : "bg-ube-light text-ube"}`}>{status === "verified" ? "✓ Verified" : "Awaiting verification"}</span>
+      {photoUrl && <a href={photoUrl} target="_blank" rel="noreferrer" className="text-sm font-semibold underline">Photo</a>}
+      <button className="btn-secondary min-h-11 text-sm" onClick={toggle}>{status === "verified" ? "Unverify" : "Mark verified"}</button>
+      {err && <span className="w-full text-xs text-danger">{err}</span>}
+    </span>
+  );
+}
+
 function StatusCell({ t }: { t: TxnRow }) {
   return (
     <div className="flex flex-wrap gap-1">
-      {t.status === "voided" ? <span className="badge bg-ink text-white">✕ Voided</span> : <span className="badge bg-ok-light text-ok">✓ Completed</span>}
+      {t.status === "voided" ? <span className="badge bg-ink text-paper">✕ Voided</span> : <span className="badge bg-ok-light text-ok">✓ Completed</span>}
       {t.flags.map((f) => <span key={f} className="badge bg-warn-light text-warn">⚠ {FLAG_LABEL[f] ?? f}</span>)}
     </div>
   );
@@ -185,19 +222,22 @@ function TransactionDetail({ txn, onClose, onVoided }: { txn: TxnRow | null; onC
   const [lines, setLines] = useState<LineRow[] | null>(null);
   const [voiding, setVoiding] = useState(false);
   const [reason, setReason] = useState("");
+  const [note, setNote] = useState("");
   const [pin, setPin] = useState("");
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    setLines(null); setVoiding(false); setReason(""); setPin(""); setError(null);
+    setLines(null); setVoiding(false); setReason(""); setNote(""); setPin(""); setError(null);
     if (!txn) return;
     getSupabase().from("transaction_lines").select(LINES_SELECT).eq("transaction_id", txn.id).order("position")
       .then(({ data, error }) => (error ? setError(errorMessage(error)) : setLines(data as unknown as LineRow[])));
   }, [txn]);
 
   async function doVoid() {
-    if (!txn || !reason.trim() || !/^\d{4}$/.test(pin)) return;
-    const { error } = await getSupabase().rpc("void_sale_with_owner_pin", { p_transaction_id: txn.id, p_reason: reason.trim(), p_pin: pin });
+    if (!txn || !reason || (reason === "other" && !note.trim()) || !/^\d{4}$/.test(pin)) return;
+    const { error } = await getSupabase().rpc("void_order_with_owner_pin", {
+      p: { transaction_id: txn.id, reason_code: reason, note: note.trim() || null }, p_pin: pin,
+    });
     setPin("");
     if (error) return setError(errorMessage(error));
     onVoided();
@@ -212,6 +252,7 @@ function TransactionDetail({ txn, onClose, onVoided }: { txn: TxnRow | null; onC
           {error && <Notice tone="danger">{error}</Notice>}
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div className="text-sm">
+              <p className="flex items-center gap-2 font-mono text-lg font-bold">{txn.order_number}<CopyButton value={txn.order_number} /></p>
               <p><strong>{formatDateTime(txn.client_created_at)}</strong> · {txn.events?.name}</p>
               <p>Rung up by <strong>{txn.staff?.name}</strong></p>
               <p className="text-ink-soft">Synced {formatDateTime(txn.synced_at)} · ID {txn.id.slice(0, 8)}</p>
@@ -248,13 +289,16 @@ function TransactionDetail({ txn, onClose, onVoided }: { txn: TxnRow | null; onC
           <dl className="grid grid-cols-2 gap-x-6 gap-y-1 text-sm sm:max-w-md">
             <dt>Subtotal</dt><dd className="text-right tabular-nums">{formatPeso(txn.subtotal_centavos)}</dd>
             {txn.discount_centavos > 0 && (<>
-              <dt>Discount{txn.discount_type === "percent" ? ` (${(txn.discount_value ?? 0) / 100}%)` : ""} — {txn.discount_reason}</dt>
+              <dt>Discount{txn.discount_type === "percent" ? ` (${(txn.discount_value ?? 0) / 100}%)` : ""}: {txn.discount_reason}</dt>
               <dd className="text-right tabular-nums">−{formatPeso(txn.discount_centavos)}</dd>
             </>)}
             <dt className="font-bold">Total</dt><dd className="text-right font-bold tabular-nums">{formatPeso(txn.total_centavos)}</dd>
             <dt>Cost of goods</dt><dd className="text-right tabular-nums">{lines ? formatPeso(cost) : "…"}</dd>
             <dt>Payment</dt><dd className="text-right">{txn.payment_method === "cash" ? "Cash" : "QR Ph"}</dd>
-            {txn.payment_method === "qr_ph" && (<><dt>Reference</dt><dd className="text-right font-mono">{txn.qr_reference}</dd></>)}
+            {txn.payment_method === "qr_ph" && (<>
+              <dt>Reference</dt><dd className="flex items-center justify-end gap-2 font-mono">{txn.qr_reference}{txn.qr_reference && <CopyButton value={txn.qr_reference} />}</dd>
+              <dt>Verification</dt><dd className="text-right"><PaymentVerification txn={txn} /></dd>
+            </>)}
             {txn.payment_method === "cash" && (<>
               <dt>Cash received</dt><dd className="text-right tabular-nums">{formatPeso(txn.cash_received_centavos ?? 0)}</dd>
               <dt>Change given</dt><dd className="text-right tabular-nums">{formatPeso(txn.change_given_centavos ?? 0)}</dd>
@@ -266,15 +310,21 @@ function TransactionDetail({ txn, onClose, onVoided }: { txn: TxnRow | null; onC
           ) : voiding ? (
             <div className="space-y-2 rounded-xl border-2 border-danger/40 p-3">
               <Field label="Reason for voiding (required)" htmlFor="void-reason">
-                <input id="void-reason" autoFocus className="input" value={reason} onChange={(e) => setReason(e.target.value)} placeholder="e.g. wrong item rung up, customer refunded" />
+                <select id="void-reason" autoFocus className="input" value={reason} onChange={(e) => setReason(e.target.value)}>
+                  <option value="">Pick a reason</option>
+                  {VOID_REASONS.map((r) => <option key={r.code} value={r.code}>{r.label}</option>)}
+                </select>
+              </Field>
+              <Field label={`Note${reason === "other" ? " (required)" : " (optional)"}`} htmlFor="void-note">
+                <input id="void-note" className="input" value={note} onChange={(e) => setNote(e.target.value)} maxLength={200} />
               </Field>
               <Field label="Owner PIN (required)" htmlFor="void-pin">
-                <input id="void-pin" className="input w-32 text-center text-xl tracking-[0.5em]" type="password" inputMode="numeric" autoComplete="off"
+                <SecretInput id="void-pin" className="w-32 text-center text-xl tracking-[0.5em]" inputMode="numeric" autoComplete="off"
                   maxLength={4} value={pin} onChange={(e) => setPin(e.target.value.replace(/\D/g, "").slice(0, 4))} />
               </Field>
-              <p className="text-sm text-ink-soft">The sale stays in history as voided and its pastries are returned to stock.</p>
+              <p className="text-sm text-ink-soft">The sale stays in history as voided, keeps its order number, and its pastries are returned to stock.</p>
               <div className="flex gap-2">
-                <button className="btn-danger" disabled={!reason.trim() || pin.length !== 4} onClick={doVoid}>Void sale</button>
+                <button className="btn-danger" disabled={!reason || (reason === "other" && !note.trim()) || pin.length !== 4} onClick={doVoid}>Void sale</button>
                 <button className="btn-ghost" onClick={() => setVoiding(false)}>Cancel</button>
               </div>
             </div>

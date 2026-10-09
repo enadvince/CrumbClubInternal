@@ -126,7 +126,7 @@ function ProductChart({ r, metric, setMetric }: { r: DashboardReport; metric: Me
         <div className="flex gap-1" role="radiogroup" aria-label="Metric">
           {(["revenue", "units", "profit"] as Metric[]).map((m) => (
             <button key={m} role="radio" aria-checked={metric === m} onClick={() => setMetric(m)}
-              className={`btn min-h-10 border-2 px-3 text-sm ${metric === m ? "border-caramel bg-crust" : "border-crust-dark bg-paper"}`}>
+              className={`btn min-h-11 border-2 px-3 text-sm ${metric === m ? "border-caramel bg-crust hover:bg-crust-dark" : "border-crust-dark bg-paper hover:bg-crust active:bg-crust-dark"}`}>
               {m === "profit" ? "Gross profit" : m === "units" ? "Units" : "Revenue"}
             </button>
           ))}
@@ -179,9 +179,9 @@ function BundleTable({ r }: { r: DashboardReport }) {
             const discount = b.separate_value_centavos - b.revenue_centavos;
             return [
               `${b.name}${b.type === "mix_match" ? " (mix)" : ""}`, b.units, peso(b.revenue_centavos), peso(profit),
-              b.revenue_centavos ? pct((profit / b.revenue_centavos) * 100) : "—",
+              b.revenue_centavos ? pct((profit / b.revenue_centavos) * 100) : "-",
               peso(discount),
-              b.pieces ? `−${formatPeso(Math.round(discount / b.pieces))}` : "—",
+              b.pieces ? `−${formatPeso(Math.round(discount / b.pieces))}` : "-",
             ];
           })}
         />
@@ -230,13 +230,13 @@ function SellThrough({ r }: { r: DashboardReport }) {
               <tr key={`${s.event_id}-${s.product}`}>
                 {multipleEvents && <td className="py-1.5">{s.event_name}</td>}
                 <td className="py-1.5 font-semibold">{s.product}</td>
-                <td className="py-1.5 text-right">{s.sold} / {s.stocked} · {s.rate != null ? `${Math.round(s.rate * 100)}%` : "—"}</td>
+                <td className="py-1.5 text-right">{s.sold} / {s.stocked} · {s.rate != null ? `${Math.round(s.rate * 100)}%` : "-"}</td>
                 <td className="py-1.5 pl-3">
                   <div className="h-2.5 rounded-full bg-crust" aria-hidden>
                     <div className="h-full rounded-full" style={{ width: `${Math.min(100, (s.rate ?? 0) * 100)}%`, background: "var(--color-series-1)" }} />
                   </div>
                 </td>
-                <td className="py-1.5 text-right">{s.sold_out_at ? <span className="font-semibold">✕ {formatTime(s.sold_out_at)}</span> : "—"}</td>
+                <td className="py-1.5 text-right">{s.sold_out_at ? <span className="font-semibold">✕ {formatTime(s.sold_out_at)}</span> : "-"}</td>
               </tr>
             ))}
           </tbody>

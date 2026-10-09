@@ -4,6 +4,8 @@ import { getSupabase } from "@/lib/supabase/client";
 import { useOwner } from "../OwnerContext";
 import { EmptyState, Field, Notice, PageHeader, Spinner } from "@/components/ui";
 import { Modal } from "@/components/Modal";
+import { SecretInput } from "@/components/SecretInput";
+import { useConfirm } from "@/components/ConfirmModal";
 import { errorMessage } from "@/lib/errors";
 import { formatDateTime } from "@/lib/time";
 
@@ -33,7 +35,7 @@ function lockState(o: Owner | null): "locked" | "wait" | null {
   return new Date(o.pin_locked_until) > new Date() ? "wait" : null;
 }
 
-const pinInput = "input text-center text-2xl tracking-[0.6em]";
+const pinInput = "text-center text-2xl tracking-[0.6em]";
 const digits = (v: string) => v.replace(/\D/g, "").slice(0, 4);
 
 /**
@@ -43,6 +45,7 @@ const digits = (v: string) => v.replace(/\D/g, "").slice(0, 4);
  */
 export default function PersonnelPage() {
   const { businessId, userId } = useOwner();
+  const [ask, confirmEl] = useConfirm();
   const [staff, setStaff] = useState<Staff[] | null>(null);
   const [owners, setOwners] = useState<Owner[]>([]);
   const [filter, setFilter] = useState<Filter>("all");
@@ -92,7 +95,7 @@ export default function PersonnelPage() {
   const canManage = (p: Person) => p.kind !== "main" && (p.kind !== "co" || isMain);
 
   async function toggleActive(p: Person) {
-    if (p.active && p.kind === "co" && !confirm(`Deactivate ${p.name}? They won't be able to open the owner pages until reactivated.`)) return;
+    if (p.active && p.kind === "co" && !(await ask({ title: "Deactivate co-owner?", body: `Deactivate ${p.name}? They won't be able to open the owner pages until reactivated.`, confirmLabel: "Deactivate" }))) return;
     const { error } = await getSupabase().from("staff").update({ active: !p.active }).eq("id", p.id);
     if (error) setError(errorMessage(error));
     load();
@@ -100,6 +103,7 @@ export default function PersonnelPage() {
 
   return (
     <>
+      {confirmEl}
       <PageHeader
         title="Personnel"
         subtitle="Owners and staff. Everyone rings up sales on the tablet with their own 4-digit PIN; co-owners also sign in to these pages with their email and PIN."
@@ -238,7 +242,7 @@ function AddCoOwnerModal({ open, onClose, onSaved }: { open: boolean; onClose: (
           <input id="co-email" type="email" required className="input" value={email} onChange={(e) => setEmail(e.target.value)} />
         </Field>
         <Field label="Their 4-digit PIN" htmlFor="co-pin" hint="Tell them their PIN. It also works on the POS tablet. They can change it later on the Personnel page.">
-          <input id="co-pin" type="password" required inputMode="numeric" autoComplete="off" pattern="\d{4}" maxLength={4}
+          <SecretInput id="co-pin" required inputMode="numeric" autoComplete="off" pattern="\d{4}" maxLength={4}
             className={pinInput} value={pin} onChange={(e) => setPin(digits(e.target.value))} />
         </Field>
         <Notice tone="warn">Co-owners can see all sales, costs and staff. They can&apos;t add or remove owners.</Notice>
@@ -280,12 +284,12 @@ function PinModal({ staff, onClose, onSaved }: { staff: Staff | null; onClose: (
         {error && <Notice tone="danger">{error}</Notice>}
         {changing && (
           <Field label="Current PIN" htmlFor="current-pin">
-            <input id="current-pin" autoFocus required type="password" inputMode="numeric" autoComplete="off" pattern="\d{4}" maxLength={4}
+            <SecretInput id="current-pin" autoFocus required inputMode="numeric" autoComplete="off" pattern="\d{4}" maxLength={4}
               className={pinInput} value={current} onChange={(e) => setCurrent(digits(e.target.value))} />
           </Field>
         )}
         <Field label="New 4-digit PIN" htmlFor="new-pin">
-          <input id="new-pin" autoFocus={!changing} required type="password" inputMode="numeric" autoComplete="off" pattern="\d{4}" maxLength={4}
+          <SecretInput id="new-pin" autoFocus={!changing} required inputMode="numeric" autoComplete="off" pattern="\d{4}" maxLength={4}
             className={pinInput} value={pin} onChange={(e) => setPin(digits(e.target.value))} />
         </Field>
         <button className="btn-primary w-full" disabled={!ready || saving}>{saving ? "Saving…" : changing ? "Change PIN" : "Save PIN"}</button>
@@ -316,7 +320,7 @@ function ResetPinModal({ owner, onClose, onSaved }: { owner: Owner | null; onClo
         {error && <Notice tone="danger">{error}</Notice>}
         <p className="text-sm text-ink-soft">This replaces their PIN without the current one and unlocks their sign-in.</p>
         <Field label="New 4-digit PIN" htmlFor="reset-pin">
-          <input id="reset-pin" autoFocus required type="password" inputMode="numeric" autoComplete="off" pattern="\d{4}" maxLength={4}
+          <SecretInput id="reset-pin" autoFocus required inputMode="numeric" autoComplete="off" pattern="\d{4}" maxLength={4}
             className={pinInput} value={pin} onChange={(e) => setPin(digits(e.target.value))} />
         </Field>
         <button className="btn-primary w-full" disabled={saving || pin.length !== 4}>{saving ? "Saving…" : "Set PIN"}</button>
@@ -356,7 +360,7 @@ function RemoveModal({ person, onClose, onSaved }: { person: Person | null; onCl
           Their name stays on past sales. This can&apos;t be undone.
         </Notice>
         <Field label="Your owner PIN" htmlFor="owner-pin">
-          <input id="owner-pin" autoFocus required type="password" inputMode="numeric" autoComplete="off" pattern="\d{4}" maxLength={4}
+          <SecretInput id="owner-pin" autoFocus required inputMode="numeric" autoComplete="off" pattern="\d{4}" maxLength={4}
             className={pinInput} value={pin} onChange={(e) => setPin(digits(e.target.value))} />
         </Field>
         <button className="btn-primary w-full" disabled={saving || pin.length !== 4}>{saving ? "Removing…" : "Remove"}</button>

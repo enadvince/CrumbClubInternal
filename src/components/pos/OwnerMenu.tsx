@@ -2,19 +2,22 @@
 import { useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { Modal } from "@/components/Modal";
-import { getDb } from "@/lib/offline/db";
-import { adjustStockLocally, setAvailabilityLocally, type AdjustmentReason } from "@/lib/offline/actions";
+import { ConfirmModal } from "@/components/ConfirmModal";
+import { getDb, KV, type DeviceInfo } from "@/lib/offline/db";
+import { CopyButton } from "@/components/CopyButton";
+import { adjustStockLocally, auditLocally, setAvailabilityLocally, type AdjustmentReason } from "@/lib/offline/actions";
 import { backupCsv, backupJson } from "@/lib/offline/backup";
 import type { SyncEngine, SyncState } from "@/lib/offline/sync";
 import type { UnsyncedSummary } from "@/lib/offline/stock";
 import { downloadText } from "@/lib/csv";
+import { formatPeso } from "@/lib/money";
 import type { Menu } from "@/lib/pos/types";
 import { formatDateTime, timeAgo } from "@/lib/time";
 
-type Tab = "sync" | "stock" | "tablet";
+type Tab = "sync" | "stock" | "shifts" | "tablet";
 
 export function OwnerMenu({
-  open, onClose, engine, state, summary, menu, ownerStaffId, onUnpair, onOwnerView,
+  open, onClose, engine, state, summary, menu, ownerStaffId, onUnpair, onOwnerView, onViewShift,
 }: {
   open: boolean;
   onClose: () => void;
@@ -26,18 +29,22 @@ export function OwnerMenu({
   onUnpair: () => Promise<void>;
   /** Switches the tablet to the owner pages (dashboard). Absent in demo mode. */
   onOwnerView?: () => void;
+  /** Opens a shift report full screen */
+  onViewShift: (shiftId: string) => void;
 }) {
   const [tab, setTab] = useState<Tab>("sync");
   const [message, setMessage] = useState<string | null>(null);
+  const [confirmUnpair, setConfirmUnpair] = useState(false);
   const unsynced = useLiveQuery(() => getDb().outbox.where("status").notEqual("synced").toArray(), [], []);
   const hasUnsynced = summary.pending + summary.failed > 0;
 
   async function download(kind: "json" | "csv") {
     const db = getDb();
     const stamp = new Date().toISOString().slice(0, 16).replace(/[:T]/g, "-");
-    if (kind === "json") downloadText(`crumbclub-backup-${stamp}.json`, await backupJson(db), "application/json");
-    else downloadText(`crumbclub-backup-${stamp}.csv`, await backupCsv(db));
-    setMessage("Backup downloaded. Keep it until these sales show up on the dashboard.");
+    if (kind === "json") downloadText(`crumbclub-emergency-export-${stamp}.json`, await backupJson(db), "application/json");
+    else downloadText(`crumbclub-emergency-export-${stamp}.csv`, await backupCsv(db));
+    await auditLocally(db, { action: "emergency_export", manager_staff_id: ownerStaffId, note: kind });
+    setMessage("Emergency export downloaded. Keep the file safe until these orders show up on the owner pages.");
   }
 
   async function syncNow() {
@@ -59,7 +66,7 @@ export function OwnerMenu({
         </button>
       )}
       <div className="mb-4 flex gap-2" role="tablist">
-        {([["sync", "Sync & backup"], ["stock", "Stock"], ["tablet", "Tablet"]] as const).map(([t, label]) => (
+        {([["sync", "Sync & backup"], ["stock", "Stock"], ["shifts", "Shifts"], ["tablet", "Tablet"]] as const).map(([t, label]) => (
           <button key={t} role="tab" aria-selected={tab === t} onClick={() => { setTab(t); setMessage(null); }}
             className={`btn flex-1 border-2 ${tab === t ? "border-caramel bg-crust" : "border-crust-dark bg-paper"}`}>{label}</button>
         ))}
@@ -79,12 +86,15 @@ export function OwnerMenu({
             <button className="btn-primary" onClick={syncNow} disabled={state.syncing}>{state.syncing ? "Syncing…" : "↻ Sync now"}</button>
             {summary.failed > 0 && <button className="btn-secondary" onClick={retryFailed}>Retry failed</button>}
           </div>
-          <div className="rounded-xl border-2 border-crust-dark p-3">
-            <p className="font-bold">Download local backup</p>
-            <p className="mb-2 text-sm text-ink-soft">Every sale stored on this tablet (synced and unsynced). Use it if the tablet can&apos;t get online.</p>
+          <div className="rounded-xl border-2 border-danger/50 bg-danger-light/40 p-3">
+            <p className="font-bold text-danger">Emergency export (last resort)</p>
+            <p className="mb-2 text-sm text-ink-soft">
+              Downloads everything stored on this tablet, including orders, refunds, shifts and drawer movements that never synced.
+              Use it only if this tablet can never get online again, then contact support. Normal backups happen on the server every night.
+            </p>
             <div className="flex flex-wrap gap-2">
-              <button className="btn-secondary" onClick={() => download("json")}>⬇ Backup (JSON)</button>
-              <button className="btn-secondary" onClick={() => download("csv")}>⬇ Backup (CSV)</button>
+              <button className="btn-secondary" onClick={() => download("json")}>⬇ Emergency export (JSON)</button>
+              <button className="btn-secondary" onClick={() => download("csv")}>⬇ Emergency export (CSV)</button>
             </div>
           </div>
           {unsynced.length > 0 && (
@@ -108,26 +118,67 @@ export function OwnerMenu({
 
       {tab === "stock" && (menu ? <StockTab menu={menu} ownerStaffId={ownerStaffId} onDone={(m) => { setMessage(m); engine?.requestSync(); }} /> : <p>No live event.</p>)}
 
+      {tab === "shifts" && <ShiftsTab onView={onViewShift} />}
+
       {tab === "tablet" && (
         <div className="space-y-4">
+          <TabletCode />
           <p className="text-ink-soft">Unpairing signs this tablet out and clears its local data. You&apos;ll need an owner login to set it up again.</p>
           {hasUnsynced && (
             <p role="alert" className="rounded-xl bg-danger-light p-3 font-semibold text-danger">
               ✕ Blocked: {summary.pending + summary.failed} item(s) haven&apos;t synced. Sync first, or download a backup and ask for help.
             </p>
           )}
-          <button
-            className="btn-danger"
-            disabled={hasUnsynced}
-            onClick={async () => {
-              if (confirm("Unpair this tablet and clear its local data?")) await onUnpair();
-            }}
-          >
+          <button className="btn-danger" onClick={() => setConfirmUnpair(true)}>
             Unpair tablet and sign out
           </button>
+          <ConfirmModal
+            open={confirmUnpair}
+            title="Reset this tablet?"
+            confirmLabel="Unpair and clear data"
+            onClose={() => setConfirmUnpair(false)}
+            onConfirm={async () => { setConfirmUnpair(false); await onUnpair(); }}
+            blockedReason={hasUnsynced
+              ? `${summary.pending + summary.failed} item(s) are only on this tablet. Resetting now would lose them. Sync first, or download an emergency export and ask for help.`
+              : undefined}
+          >
+            <p>This signs the tablet out and deletes its local data, including its order counter. You&apos;ll need an owner login to set it up again.</p>
+          </ConfirmModal>
         </div>
       )}
     </Modal>
+  );
+}
+
+/** This tablet's device code (starts every order number), with a copy button. */
+function TabletCode() {
+  const device = useLiveQuery(() => getDb().getKv<DeviceInfo>(KV.device), []);
+  if (!device?.deviceCode) return <p className="text-ink-soft">This tablet has no device code yet.</p>;
+  return (
+    <p className="flex flex-wrap items-center gap-2">
+      This tablet is <strong className="font-mono text-lg">{device.deviceCode}</strong>{device.label ? ` (${device.label})` : ""}.
+      <CopyButton value={device.deviceCode} label="Copy code" />
+    </p>
+  );
+}
+
+/** Shifts on this tablet, newest first, each with its report. */
+function ShiftsTab({ onView }: { onView: (shiftId: string) => void }) {
+  const shifts = useLiveQuery(() => getDb().shifts.orderBy("openedAt").reverse().limit(30).toArray(), [], []);
+  if (shifts.length === 0) return <p className="text-ink-soft">No shifts on this tablet yet.</p>;
+  return (
+    <ul className="divide-y divide-crust-dark rounded-xl border border-crust-dark">
+      {shifts.map((s) => (
+        <li key={s.id} className="flex flex-wrap items-center gap-3 p-3">
+          <span className="min-w-40 flex-1">
+            <span className="font-semibold">{formatDateTime(s.openedAt)}</span>
+            <span className="block text-xs text-ink-soft">{s.openedByName}{s.closedAt ? ` · closed ${formatDateTime(s.closedAt)}` : " · open"}</span>
+          </span>
+          {s.variance != null && <span className={`badge ${s.variance === 0 ? "bg-ok-light text-ok" : "bg-warn-light text-warn"}`}>Variance {formatPeso(s.variance, { sign: true })}</span>}
+          <button className="btn-secondary min-h-11 text-sm" onClick={() => onView(s.id)}>View report</button>
+        </li>
+      ))}
+    </ul>
   );
 }
 

@@ -29,7 +29,7 @@ export default function SummaryPage({ params }: { params: Promise<{ id: string }
   const sorted = [...r.products].sort((a, b) => b.revenue_centavos - a.revenue_centavos);
 
   const text = [
-    `${r.event.name} — ${formatDateRange(r.event.starts_on, r.event.ends_on)}${r.event.venue ? ` @ ${r.event.venue}` : ""}`,
+    `${r.event.name}, ${formatDateRange(r.event.starts_on, r.event.ends_on)}${r.event.venue ? ` @ ${r.event.venue}` : ""}`,
     `Revenue ${formatPeso(t.revenue_centavos)} · ${t.transactions} sales · ${t.items} items`,
     `Gross profit ${formatPeso(profit)} (${margin.toFixed(1)}%)`,
     `Cash ${formatPeso(t.cash_centavos)} · QR Ph ${formatPeso(t.qr_centavos)}`,
@@ -79,9 +79,9 @@ export default function SummaryPage({ params }: { params: Promise<{ id: string }
           <dt>Opening float</dt><dd className="text-right">{formatPeso(r.cash.opening_float_centavos)}</dd>
           <dt>Cash sales</dt><dd className="text-right">{formatPeso(r.cash.cash_sales_centavos)}</dd>
           <dt className="font-bold">Expected</dt><dd className="text-right font-bold">{formatPeso(r.cash.expected_cash_centavos)}</dd>
-          <dt>Counted</dt><dd className="text-right">{r.cash.counted_cash_centavos != null ? formatPeso(r.cash.counted_cash_centavos) : "—"}</dd>
+          <dt>Counted</dt><dd className="text-right">{r.cash.counted_cash_centavos != null ? formatPeso(r.cash.counted_cash_centavos) : "-"}</dd>
           <dt className="font-bold">Variance</dt>
-          <dd className="text-right font-bold">{r.cash.variance_centavos != null ? (r.cash.variance_centavos === 0 ? "✓ Balanced" : formatPeso(r.cash.variance_centavos, { sign: true })) : "—"}</dd>
+          <dd className="text-right font-bold">{r.cash.variance_centavos != null ? (r.cash.variance_centavos === 0 ? "✓ Balanced" : formatPeso(r.cash.variance_centavos, { sign: true })) : "-"}</dd>
         </dl>
         {r.cash.notes && <p className="mt-2 text-sm">Notes: {r.cash.notes}</p>}
       </Section>
@@ -99,9 +99,9 @@ export default function SummaryPage({ params }: { params: Promise<{ id: string }
                   <td className="py-1">{p.name}</td>
                   <td className="text-right">{p.sold}</td>
                   <td className="text-right">{stocked}</td>
-                  <td className="text-right">{stocked ? `${Math.round((p.sold / stocked) * 100)}%` : "—"}</td>
+                  <td className="text-right">{stocked ? `${Math.round((p.sold / stocked) * 100)}%` : "-"}</td>
                   <td className="text-right">{formatPeso(p.revenue_centavos)}</td>
-                  <td className="text-right">{p.sold_out_at ? formatTime(p.sold_out_at) : "—"}</td>
+                  <td className="text-right">{p.sold_out_at ? formatTime(p.sold_out_at) : "-"}</td>
                   <td className="text-right">{leftover(p)}</td>
                 </tr>
               );

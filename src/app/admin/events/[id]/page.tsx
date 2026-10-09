@@ -1,5 +1,6 @@
 "use client";
 import { use, useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
+import { useConfirm } from "@/components/ConfirmModal";
 import Link from "next/link";
 import { getSupabase } from "@/lib/supabase/client";
 import { useOwner } from "../../OwnerContext";
@@ -27,6 +28,7 @@ const REASONS = [
 ] as const;
 
 export default function EventPage({ params }: { params: Promise<{ id: string }> }) {
+  const [ask, confirmEl] = useConfirm();
   const { id } = use(params);
   const { businessId } = useOwner();
   const [event, setEvent] = useState<EventRow | null>(null);
@@ -167,7 +169,7 @@ export default function EventPage({ params }: { params: Promise<{ id: string }> 
 
   async function setStatus(status: "live" | "draft") {
     if (!event) return;
-    if (dirty && !confirm("You have unsaved menu changes. Continue without saving?")) return;
+    if (dirty && !(await ask({ title: "Unsaved menu changes", body: "You have unsaved menu changes. Continue without saving?", confirmLabel: "Continue without saving" }))) return;
     const { error } = await getSupabase().rpc("set_event_status", { p_event_id: event.id, p_status: status });
     if (error) return setError(errorMessage(error));
     load(true);
@@ -193,6 +195,7 @@ export default function EventPage({ params }: { params: Promise<{ id: string }> 
 
   return (
     <>
+      {confirmEl}
       <p className="mb-2 text-sm"><Link href="/admin/events" className="font-semibold text-caramel underline">← Events</Link></p>
       <PageHeader
         title={event.name}
@@ -203,7 +206,7 @@ export default function EventPage({ params }: { params: Promise<{ id: string }> 
             {event.status === "draft" && <button className="btn-primary" onClick={() => setStatus("live")}>Go live</button>}
             {event.status === "live" && <Link href={`/admin/events/${event.id}/close`} className="btn-primary">End of day / close</Link>}
             {event.status === "closed" && <Link href={`/admin/events/${event.id}/summary`} className="btn-primary">View summary</Link>}
-            {event.status === "closed" && <button className="btn-ghost" onClick={() => confirm("Reopen this event for sales?") && setStatus("live")}>Reopen</button>}
+            {event.status === "closed" && <button className="btn-ghost" onClick={async () => { if (await ask({ title: "Reopen event?", body: "Reopen this event for sales? Tablets can sell again once they sync.", confirmLabel: "Reopen", tone: "primary" })) await setStatus("live"); }}>Reopen</button>}
           </>
         }
       />
@@ -267,17 +270,17 @@ export default function EventPage({ params }: { params: Promise<{ id: string }> 
                           <span className={`font-bold ${ep.current_stock <= 0 ? "text-danger" : ep.current_stock <= event.low_stock_threshold ? "text-warn" : ""}`}>{ep.current_stock}</span>
                           {ep.current_stock <= 0 && <span className="badge ml-1 bg-danger-light text-danger">Sold out{ep.sold_out_at ? ` ${formatTime(ep.sold_out_at)}` : ""}</span>}
                         </>
-                      ) : "—"}
+                      ) : "-"}
                     </td>
                     <td className="p-3">
                       {ep ? (
-                        <button className={`badge min-h-9 px-3 ${ep.is_available ? "bg-ok-light text-ok" : "bg-danger-light text-danger"}`} disabled={locked}
+                        <button className={`badge min-h-11 px-3 hover:brightness-95 active:brightness-90 ${ep.is_available ? "bg-ok-light text-ok" : "bg-danger-light text-danger"}`} disabled={locked}
                           onClick={() => toggleAvailable(ep)} aria-label={`${p.name} is ${ep.is_available ? "available" : "unavailable"}; toggle`}>
                           {ep.is_available ? "✓ Available" : "✕ Unavailable"}
                         </button>
-                      ) : "—"}
+                      ) : "-"}
                     </td>
-                    <td className="p-3">{ep && !locked && <button className="btn-ghost min-h-10 text-sm" onClick={() => setAdjusting(ep)}>Restock / adjust</button>}</td>
+                    <td className="p-3">{ep && !locked && <button className="btn-ghost min-h-11 text-sm" onClick={() => setAdjusting(ep)}>Restock / adjust</button>}</td>
                   </tr>
                 );
               })}
@@ -337,7 +340,7 @@ export default function EventPage({ params }: { params: Promise<{ id: string }> 
                 <div key={a.id} className="flex flex-wrap gap-2 p-3">
                   <span className="w-28 text-ink-soft">{formatDateTime(a.created_at)}</span>
                   <span className="flex-1 font-semibold">{productById.get(ep?.product_id ?? "")?.name}</span>
-                  <span className="capitalize">{a.reason.replace("_", " ")}{a.note ? ` — ${a.note}` : ""}</span>
+                  <span className="capitalize">{a.reason.replace("_", " ")}{a.note ? `: ${a.note}` : ""}</span>
                   <span className={`w-12 text-right font-bold tabular-nums ${a.quantity_change > 0 ? "text-ok" : "text-danger"}`}>{a.quantity_change > 0 ? "+" : ""}{a.quantity_change}</span>
                 </div>
               );

@@ -1,7 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { toCsv } from "./csv";
+import { csvDate, toCsv } from "./csv";
 import { centavosToDecimalString } from "./money";
-import { addDays, manilaDayStart, TZ } from "./time";
+import { addDays, manilaDayStart } from "./time";
 
 export type TxnFilters = {
   eventId?: string;
@@ -12,10 +12,16 @@ export type TxnFilters = {
   status?: "completed" | "voided";
   hasBundle?: boolean;
   qrSearch?: string;
+  /** Order number, full or partial (e.g. "0042" or "T1-261008") */
+  orderSearch?: string;
 };
 
 export type TxnRow = {
   id: string;
+  order_number: string;
+  device_id: string | null;
+  /** Server time the order reached the server (authoritative) */
+  created_at: string;
   event_id: string;
   staff_id: string;
   client_created_at: string;
@@ -28,6 +34,8 @@ export type TxnRow = {
   total_centavos: number;
   payment_method: "cash" | "qr_ph";
   qr_reference: string | null;
+  payment_status: "paid" | "awaiting_verification" | "verified";
+  payment_photo_path: string | null;
   cash_received_centavos: number | null;
   change_given_centavos: number | null;
   item_count: number;
@@ -78,6 +86,7 @@ export function applyTxnFilters<Q extends { eq: any; gte: any; lt: any; ilike: a
   if (f.status) q = q.eq("status", f.status);
   if (f.hasBundle) q = q.eq("has_bundle", true);
   if (f.qrSearch?.trim()) q = q.ilike("qr_reference", `%${f.qrSearch.trim().replace(/[%_]/g, "")}%`);
+  if (f.orderSearch?.trim()) q = q.ilike("order_number", `%${f.orderSearch.trim().replace(/[%_]/g, "")}%`);
   return q;
 }
 
@@ -111,24 +120,22 @@ export async function fetchLines(supabase: SupabaseClient, transactionIds: strin
   return out;
 }
 
-const manilaStamp = new Intl.DateTimeFormat("en-CA", {
-  timeZone: TZ, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false,
-});
-/** "2026-10-10 11:40:05" in Manila time, spreadsheet-friendly */
+/** ISO 8601 in Manila time for exports: "2026-10-10T11:40:05+08:00" */
 export function manilaTimestamp(ts: string): string {
-  return manilaStamp.format(new Date(ts)).replace(",", "");
+  return csvDate(ts);
 }
 
 const money = (c: number | null) => (c == null ? "" : centavosToDecimalString(c));
 
 export function transactionsCsv(rows: TxnRow[]): string {
   return toCsv(
-    ["transaction_id", "time_manila", "event", "staff", "status", "items", "has_bundle", "subtotal", "discount", "discount_reason",
-      "total", "payment_method", "qr_reference", "cash_received", "change_given", "void_reason", "voided_by", "voided_at_manila", "synced_at_manila", "flags"],
+    ["transaction_id", "order_number", "time_manila", "server_time_manila", "event", "staff", "status", "items", "has_bundle", "subtotal", "discount", "discount_reason",
+      "total", "payment_method", "payment_status", "qr_reference", "cash_received", "change_given", "void_reason", "voided_by", "voided_at_manila", "synced_at_manila", "flags"],
     rows.map((t) => [
-      t.id, manilaTimestamp(t.client_created_at), t.events?.name ?? "", t.staff?.name ?? "", t.status, t.item_count, t.has_bundle ? "yes" : "no",
+      t.id, t.order_number, manilaTimestamp(t.client_created_at), t.created_at ? manilaTimestamp(t.created_at) : "", t.events?.name ?? "",
+      t.staff?.name ?? "", t.status, t.item_count, t.has_bundle ? "yes" : "no",
       money(t.subtotal_centavos), money(t.discount_centavos), t.discount_reason ?? "", money(t.total_centavos), t.payment_method,
-      t.qr_reference ?? "", money(t.cash_received_centavos), money(t.change_given_centavos), t.void_reason ?? "", t.voided_by?.name ?? "",
+      t.payment_status ?? "", t.qr_reference ?? "", money(t.cash_received_centavos), money(t.change_given_centavos), t.void_reason ?? "", t.voided_by?.name ?? "",
       t.voided_at ? manilaTimestamp(t.voided_at) : "", manilaTimestamp(t.synced_at), t.flags.join(" "),
     ]),
   );
@@ -144,7 +151,7 @@ export function linesCsv(rows: TxnRow[], lines: LineRow[]): string {
     for (const c of l.transaction_line_components) {
       const net = c.allocated_revenue_centavos - c.allocated_discount_centavos;
       out.push([
-        t.id, manilaTimestamp(t.client_created_at), t.events?.name ?? "", t.staff?.name ?? "", t.status, t.payment_method,
+        t.id, t.order_number, manilaTimestamp(t.client_created_at), t.events?.name ?? "", t.staff?.name ?? "", t.status, t.payment_method,
         l.kind, l.name_snapshot, l.quantity, money(l.unit_price_centavos), money(l.line_total_centavos),
         c.products?.name ?? "", c.quantity, money(c.regular_unit_price_centavos), money(c.allocated_revenue_centavos),
         money(c.allocated_discount_centavos), money(net), money(c.unit_cost_centavos), money(c.unit_cost_centavos * c.quantity),
@@ -153,7 +160,7 @@ export function linesCsv(rows: TxnRow[], lines: LineRow[]): string {
     }
   }
   return toCsv(
-    ["transaction_id", "time_manila", "event", "staff", "status", "payment_method", "line_kind", "line_name", "line_qty", "line_unit_price",
+    ["transaction_id", "order_number", "time_manila", "event", "staff", "status", "payment_method", "line_kind", "line_name", "line_qty", "line_unit_price",
       "line_total", "product", "product_qty", "regular_unit_price", "allocated_revenue", "allocated_discount", "net_revenue", "unit_cost",
       "total_cost", "gross_profit"],
     out,

@@ -24,6 +24,7 @@ export function sampleSnapshot(overrides: { stock?: Record<string, number> } = {
   return {
     server_time: "2026-10-10T00:00:00Z",
     business: { id: "biz", name: "Crumb Club", timezone: "Asia/Manila" },
+    device: { id: "device-1", code: "T1", label: "Counter tablet", order_counters: {} },
     staff: [],
     recent_qr_refs: [],
     discount_options: [{ id: "d-senior", name: "Senior citizen", type: "percent", value: 2000 }],

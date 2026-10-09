@@ -5,6 +5,7 @@ import Link from "next/link";
 import { getSupabase } from "@/lib/supabase/client";
 import { Field, Logo, Notice, Spinner } from "@/components/ui";
 import { errorMessage } from "@/lib/errors";
+import { getDb, KV, type DeviceInfo } from "@/lib/offline/db";
 
 type State = "checking" | "need-owner" | "ready" | "pairing";
 
@@ -41,6 +42,14 @@ export default function PairPage() {
       await supabase.auth.signOut({ scope: "local" });
       const { error } = await supabase.auth.signInWithPassword({ email: body.email, password: body.password });
       if (error) throw error;
+      // Claim this tablet's code (T1, T2...) for order numbers while we're online.
+      const { data: claimed, error: claimError } = await supabase.rpc("claim_device_code", { p_label: label });
+      if (claimError) throw claimError;
+      const device = claimed as { device_id: string; device_code: string; label: string | null };
+      const { data: { user } } = await supabase.auth.getUser();
+      await getDb().setKv<DeviceInfo>(KV.device, {
+        userId: user?.id ?? "", deviceId: device.device_id, deviceCode: device.device_code, label: device.label ?? undefined,
+      });
       router.replace("/pos");
     } catch (e) {
       setError(errorMessage(e));
@@ -49,7 +58,7 @@ export default function PairPage() {
   }
 
   return (
-    <main className="flex min-h-dvh flex-col items-center justify-center gap-6 p-4">
+    <main id="main" className="flex min-h-dvh flex-col items-center justify-center gap-6 p-4">
       <Logo className="text-3xl text-caramel" />
       <div className="card w-full max-w-md space-y-4 p-6">
         <h1 className="text-xl font-bold">Set up this tablet as the POS</h1>

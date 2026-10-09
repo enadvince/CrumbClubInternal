@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
-  addBundle, addProduct, buildMenu, buildSale, bundleState, canIncrement, cartDemand, changeQuantity,
-  priceCart, productState, pruneCart, remainingStock, saleStockEffects,
+  addBundle, addProduct, addWouldOversell, buildMenu, buildSale, bundleState, canIncrement, cartDemand, changeQuantity,
+  incrementWouldOversell, priceCart, productState, pruneCart, remainingStock, saleStockEffects,
 } from "./cart";
 import { applySuggestion, suggestBundle } from "./suggest";
 import { sampleSnapshot } from "./fixtures";
@@ -43,55 +43,73 @@ describe("bundle stock", () => {
   });
 });
 
-describe("availability", () => {
-  it("fixed bundle unavailable when any component is sold out", () => {
+describe("availability (low and out of stock never block; adding past zero asks first)", () => {
+  it("fixed bundle is out when any component is out, but can still be added", () => {
     const menu = menuWith({ choc: 0 });
     const s = bundleState(menu, "eb-duo", remainingStock(menu, []));
-    expect(s.canAdd).toBe(false);
-    expect(s.status).toBe("sold_out");
+    expect(s).toMatchObject({ canAdd: true, status: "out" });
+    expect(addWouldOversell(menu, [], { id: "x", kind: "bundle", eventBundleId: "eb-duo", quantity: 1 }).map((p) => p.name)).toEqual(["Pain au Chocolat"]);
   });
 
-  it("fixed bundle unavailable when a component lacks enough for one more", () => {
+  it("fixed bundle is out when a component lacks enough for one more, counting the cart", () => {
     const menu = menuWith({ ube: 5 });
-    expect(bundleState(menu, "eb-ubebox", remainingStock(menu, [])).canAdd).toBe(false);
+    expect(bundleState(menu, "eb-ubebox", remainingStock(menu, [])).status).toBe("out");
     const menu6 = menuWith({ ube: 6 });
-    expect(bundleState(menu6, "eb-ubebox", remainingStock(menu6, [])).canAdd).toBe(true);
-    // ...and the cart counts: one box uses all 6
+    expect(bundleState(menu6, "eb-ubebox", remainingStock(menu6, [])).status).not.toBe("out");
     const cart = addBundle([], "eb-ubebox", id);
-    expect(bundleState(menu6, "eb-ubebox", remainingStock(menu6, cart)).status).toBe("in_cart");
+    expect(bundleState(menu6, "eb-ubebox", remainingStock(menu6, cart)).status).toBe("out");
   });
 
-  it("fixed bundle unavailable when a component is marked unavailable", () => {
+  it("an item an owner marked unavailable is the only thing that blocks", () => {
     const snap = sampleSnapshot();
     const menu = buildMenu(snap, undefined, new Map([["ep-butter", false]]))!;
-    expect(bundleState(menu, "eb-duo", remainingStock(menu, [])).status).toBe("unavailable");
+    expect(bundleState(menu, "eb-duo", remainingStock(menu, []))).toMatchObject({ canAdd: false, status: "unavailable" });
+    expect(productState(menu, "ep-butter", remainingStock(menu, []))).toMatchObject({ canAdd: false, status: "unavailable" });
   });
 
-  it("mix-and-match unavailable when fewer eligible items remain than required", () => {
+  it("mix-and-match is out when fewer eligible items remain than required", () => {
     const menu = menuWith({ ensay: 1, tart: 1, cookie: 0 });
-    expect(bundleState(menu, "eb-pick3", remainingStock(menu, [])).canAdd).toBe(false);
+    expect(bundleState(menu, "eb-pick3", remainingStock(menu, [])).status).toBe("out");
     const menu3 = menuWith({ ensay: 1, tart: 1, cookie: 1 });
-    expect(bundleState(menu3, "eb-pick3", remainingStock(menu3, [])).canAdd).toBe(true);
-    // A loose tart in the cart leaves only 2 eligible items
+    expect(bundleState(menu3, "eb-pick3", remainingStock(menu3, [])).status).not.toBe("out");
     const cart = addProduct([], "ep-tart", id);
-    expect(bundleState(menu3, "eb-pick3", remainingStock(menu3, cart)).canAdd).toBe(false);
+    expect(bundleState(menu3, "eb-pick3", remainingStock(menu3, cart)).status).toBe("out");
   });
 
-  it("products: sold out, low, all-in-cart", () => {
-    const menu = menuWith({ almond: 3, cookie: 0 });
+  it("products: low at or below the threshold, out at zero (after the cart)", () => {
+    const menu = menuWith({ almond: 3, cookie: 0, ube: 5, choc: 6 });
     const rem = remainingStock(menu, []);
-    expect(productState(menu, "ep-cookie", rem).status).toBe("sold_out");
-    expect(productState(menu, "ep-almond", rem).status).toBe("low");
+    expect(productState(menu, "ep-cookie", rem)).toMatchObject({ canAdd: true, status: "out" });
+    expect(productState(menu, "ep-almond", rem)).toMatchObject({ status: "low", remaining: 3 });
+    expect(productState(menu, "ep-ube", rem).status).toBe("low"); // at the default threshold of 5
+    expect(productState(menu, "ep-choc", rem).status).toBe("ok");
     const cart = [{ id: "x", kind: "product" as const, eventProductId: "ep-almond", quantity: 3 }];
-    expect(productState(menu, "ep-almond", remainingStock(menu, cart)).status).toBe("in_cart");
+    expect(productState(menu, "ep-almond", remainingStock(menu, cart)).status).toBe("out");
   });
 
-  it("canIncrement respects component stock", () => {
+  it("uses a product's own threshold when it has one", () => {
+    const snap = sampleSnapshot({ stock: { choc: 8 } });
+    snap.products = snap.products!.map((p) => (p.event_product_id === "ep-choc" ? { ...p, low_stock_threshold: 10 } : p));
+    const menu = buildMenu(snap)!;
+    expect(productState(menu, "ep-choc", remainingStock(menu, [])).status).toBe("low");
+  });
+
+  it("products without stock tracking never run out or warn", () => {
+    const snap = sampleSnapshot({ stock: { cookie: 0 } });
+    snap.products = snap.products!.map((p) => (p.event_product_id === "ep-cookie" ? { ...p, track_stock: false } : p));
+    const menu = buildMenu(snap)!;
+    expect(productState(menu, "ep-cookie", remainingStock(menu, []))).toMatchObject({ canAdd: true, status: "ok" });
+    expect(addWouldOversell(menu, [], { id: "x", kind: "product", eventProductId: "ep-cookie", quantity: 5 })).toEqual([]);
+  });
+
+  it("the + button warns once a line would go past the stock on record", () => {
     const menu = menuWith({ ube: 12 });
     let cart: CartLine[] = addBundle([], "eb-ubebox", () => "box");
     expect(canIncrement(menu, cart, "box")).toBe(true);
+    expect(incrementWouldOversell(menu, cart, "box")).toEqual([]);
     cart = changeQuantity(cart, "box", 1);
-    expect(canIncrement(menu, cart, "box")).toBe(false);
+    expect(canIncrement(menu, cart, "box")).toBe(true);
+    expect(incrementWouldOversell(menu, cart, "box").map((p) => p.name)).toEqual(["Ube Croissant"]);
   });
 });
 

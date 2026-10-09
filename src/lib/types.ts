@@ -2,6 +2,10 @@
 export type ProductRow = {
   id: string; business_id: string; name: string; category: string; photo_url: string | null;
   default_price_centavos: number; cost_centavos: number; active: boolean;
+  /** false for things made to order: no stock count, never "out of stock" */
+  track_stock: boolean;
+  /** Warn at or below this many left; null uses the event's threshold */
+  low_stock_threshold: number | null;
 };
 
 export type BundleRow = {

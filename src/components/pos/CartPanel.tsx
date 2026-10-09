@@ -89,7 +89,7 @@ export function CartPanel({
           <div className="flex items-center justify-between text-ok">
             <span className="flex items-center gap-1">
               Discount{discount.type === "percent" ? ` ${discount.value / 100}%` : ""} <span className="text-xs">({discount.reason})</span>
-              <button className="btn-ghost min-h-9 px-2 text-xs" onClick={onRemoveDiscount} aria-label="Remove discount">✕</button>
+              <button className="btn-ghost min-h-11 min-w-11 px-2 text-xs" onClick={onRemoveDiscount} aria-label="Remove discount">✕</button>
             </span>
             <span className="tabular-nums">−{formatPeso(priced.discount)}</span>
           </div>
