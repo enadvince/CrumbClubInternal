@@ -245,7 +245,7 @@ function BundleEditor({ bundle, products, productMap, onClose, onSaved }: {
         ) : (
           <div className="space-y-3">
             <Field label="Customer picks how many items?" htmlFor="b-count">
-              <input id="b-count" type="number" min={1} max={50} className="input w-32" value={requiredCount} onChange={(e) => setRequiredCount(Number(e.target.value))} />
+              <input id="b-count" type="number" inputMode="numeric" min={1} max={50} className="input w-32" value={requiredCount} onChange={(e) => setRequiredCount(Number(e.target.value))} />
             </Field>
             <div>
               <p className="label">Eligible products (repeats allowed)</p>

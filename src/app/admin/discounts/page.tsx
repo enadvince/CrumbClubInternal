@@ -142,7 +142,7 @@ function DiscountForm({ option, onClose, onSaved }: { option: DiscountOptionRow 
           </Field>
         )}
         <Field label="Order on the POS" htmlFor="d-sort" hint="Lower numbers show first.">
-          <input id="d-sort" type="number" className="input w-28" value={sortOrder} onChange={(e) => setSortOrder(Math.trunc(Number(e.target.value) || 0))} />
+          <input id="d-sort" type="number" inputMode="numeric" className="input w-28" value={sortOrder} onChange={(e) => setSortOrder(Math.trunc(Number(e.target.value) || 0))} />
         </Field>
         <div className="flex flex-wrap gap-2">
           <button className="btn-primary flex-1" disabled={saving}>{saving ? "Saving…" : "Save"}</button>

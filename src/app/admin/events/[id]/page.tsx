@@ -257,11 +257,11 @@ export default function EventPage({ params }: { params: Promise<{ id: string }> 
                     </td>
                     <td className="w-36 p-2"><MoneyInput id={`price-${p.id}`} value={d.price} onChange={(v) => updateProduct(p.id, { price: v })} /></td>
                     <td className="w-28 p-2">
-                      <input aria-label={`Starting stock for ${p.name}`} type="number" min={0} disabled={locked} className="input text-right" value={d.starting}
+                      <input aria-label={`Starting stock for ${p.name}`} type="number" inputMode="numeric" min={0} disabled={locked} className="input text-right" value={d.starting}
                         onChange={(e) => updateProduct(p.id, { starting: Math.max(0, Math.floor(Number(e.target.value) || 0)) })} />
                     </td>
                     <td className="w-24 p-2">
-                      <input aria-label={`Sort order for ${p.name}`} type="number" disabled={locked} className="input text-right" value={d.sort}
+                      <input aria-label={`Sort order for ${p.name}`} type="number" inputMode="numeric" disabled={locked} className="input text-right" value={d.sort}
                         onChange={(e) => updateProduct(p.id, { sort: Math.floor(Number(e.target.value) || 0) })} />
                     </td>
                     <td className="p-3 tabular-nums">
@@ -391,7 +391,7 @@ function AdjustModal({ ep, productName, onClose, onSaved }: { ep: EventProductRo
           </div>
         )}
         <Field label="Quantity" htmlFor="adj-qty">
-          <input id="adj-qty" type="number" min={1} required className="input" value={qty} onChange={(e) => setQty(Math.max(0, Math.floor(Number(e.target.value) || 0)))} />
+          <input id="adj-qty" type="number" inputMode="numeric" min={1} required className="input" value={qty} onChange={(e) => setQty(Math.max(0, Math.floor(Number(e.target.value) || 0)))} />
         </Field>
         <Field label="Note (optional)" htmlFor="adj-note">
           <input id="adj-note" className="input" value={note} onChange={(e) => setNote(e.target.value)} />
@@ -433,7 +433,7 @@ function DetailsModal({ open, event, onClose, onSaved }: { open: boolean; event:
           <Field label="Ends" htmlFor="d-end"><input id="d-end" type="date" required min={startsOn} className="input" value={endsOn} onChange={(e) => setEndsOn(e.target.value)} /></Field>
         </div>
         <Field label="Low-stock warning at" htmlFor="d-low" hint="POS shows a 'Low' badge when stock is at or below this number.">
-          <input id="d-low" type="number" min={0} className="input w-32" value={threshold} onChange={(e) => setThreshold(Math.max(0, Number(e.target.value) || 0))} />
+          <input id="d-low" type="number" inputMode="numeric" min={0} className="input w-32" value={threshold} onChange={(e) => setThreshold(Math.max(0, Number(e.target.value) || 0))} />
         </Field>
         <button className="btn-primary w-full">Save</button>
       </form>
