@@ -2,12 +2,17 @@
 import { useEffect, useState } from "react";
 import { parsePeso, type Centavos } from "@/lib/money";
 
-/** Text input for peso amounts. Keeps the raw text while typing; reports centavos (or null). */
+/**
+ * Text input for peso amounts. Keeps the raw text while typing; reports centavos (or null).
+ * `inputMode` picks the on-screen keyboard on phones/tablets: "decimal" (default) is the
+ * number pad with a "." key, "numeric" is digits only, "text" is the full keyboard.
+ */
 export function MoneyInput({
-  id, value, onChange, required, placeholder = "0.00", className = "", autoFocus,
+  id, value, onChange, required, placeholder = "0.00", className = "", autoFocus, inputMode = "decimal",
 }: {
   id: string; value: Centavos | null; onChange: (v: Centavos | null) => void;
   required?: boolean; placeholder?: string; className?: string; autoFocus?: boolean;
+  inputMode?: "decimal" | "numeric" | "text";
 }) {
   const [text, setText] = useState(value == null ? "" : toText(value));
 
@@ -23,7 +28,7 @@ export function MoneyInput({
       <span aria-hidden className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 font-semibold text-ink-soft">₱</span>
       <input
         id={id}
-        inputMode="decimal"
+        inputMode={inputMode}
         autoComplete="off"
         autoFocus={autoFocus}
         required={required}

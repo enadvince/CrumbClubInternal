@@ -212,7 +212,7 @@ function StockTab({ menu, ownerStaffId, onDone }: { menu: Menu; ownerStaffId: st
             <span className="min-w-40 flex-1 font-semibold">{p.name}</span>
             <span className="w-20 text-sm">Stock <strong>{p.stock}</strong></span>
             <input
-              type="number" min={0} aria-label={`Quantity for ${p.name}`} className="input w-20"
+              type="number" inputMode="numeric" min={0} aria-label={`Quantity for ${p.name}`} className="input w-20"
               value={qty[p.event_product_id] ?? ""} onChange={(e) => setQty((q) => ({ ...q, [p.event_product_id]: Math.max(0, Math.floor(Number(e.target.value) || 0)) }))}
             />
             <button className="btn-secondary min-h-11 text-sm" onClick={() => adjust(p.event_product_id, p.name, "restock", 1)}>+ Restock</button>

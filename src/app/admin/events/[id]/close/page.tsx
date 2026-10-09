@@ -188,7 +188,7 @@ export default function ClosePage({ params }: { params: Promise<{ id: string }> 
                     <td className="py-2 text-right">{p.waste + p.staff_meal + p.giveaway - p.correction || "-"}</td>
                     <td className="py-2 text-right font-bold">{left}</td>
                     <td className="py-1 text-right">
-                      <input type="number" min={0} max={left} disabled={closed || left === 0} aria-label={`Waste for ${p.name}`}
+                      <input type="number" inputMode="numeric" min={0} max={left} disabled={closed || left === 0} aria-label={`Waste for ${p.name}`}
                         className="input ml-auto w-20 text-right" value={w || ""}
                         onChange={(e) => setWaste((x) => ({ ...x, [p.event_product_id]: Math.min(left, Math.max(0, Math.floor(Number(e.target.value) || 0))) }))} />
                     </td>
