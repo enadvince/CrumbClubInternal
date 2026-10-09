@@ -34,8 +34,7 @@ Deno.serve(async (req) => {
   // Who is asking: the cron secret (all businesses) or a signed-in owner (their business).
   let businessIds: string[];
   let trigger: "cron" | "manual" = "cron";
-  const secret = Deno.env.get("BACKUP_CRON_SECRET");
-  if (secret && req.headers.get("x-backup-secret") === secret) {
+  if (await cronSecretOk(admin, req.headers.get("x-backup-secret"))) {
     const { data, error } = await admin.from("businesses").select("id");
     if (error) return json({ error: error.message }, 500);
     businessIds = (data ?? []).map((b: { id: string }) => b.id);
@@ -55,6 +54,16 @@ Deno.serve(async (req) => {
   for (const businessId of businessIds) results.push(await backupBusiness(admin, businessId, date, trigger));
   return json({ date, results }, results.every((r) => r.status === "success") ? 200 : 500);
 });
+
+// The cron's secret: BACKUP_CRON_SECRET if set on the function, otherwise the Vault secret
+// the cron job itself reads (checked in the database, so it never leaves Vault).
+async function cronSecretOk(admin: SupabaseClient, given: string | null): Promise<boolean> {
+  if (!given) return false;
+  const env = Deno.env.get("BACKUP_CRON_SECRET");
+  if (env) return given === env;
+  const { data, error } = await admin.rpc("backup_secret_matches", { p_secret: given });
+  return !error && data === true;
+}
 
 async function backupBusiness(admin: SupabaseClient, businessId: string, date: string, trigger: "cron" | "manual") {
   const { data: run } = await admin.from("backup_runs")

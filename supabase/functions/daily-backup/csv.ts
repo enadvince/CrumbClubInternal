@@ -1,6 +1,6 @@
 // Same CSV rules as src/lib/csv.ts (a test checks they match):
 // UTF-8 BOM, one header row, CRLF, ISO dates in Asia/Manila, amounts as plain 2-decimal numbers.
-export const BOM = "﻿";
+export const BOM = "\uFEFF";
 
 export function toCsv(headers: readonly string[], rows: readonly (readonly unknown[])[]): string {
   const esc = (v: unknown) => {

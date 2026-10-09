@@ -35,7 +35,7 @@ Edge Function secrets (Supabase → Edge Functions → Secrets, or `supabase sec
 
 | Secret | Purpose |
 |---|---|
-| `BACKUP_CRON_SECRET` | Shared secret the nightly cron job sends. Must match the Vault secret `crumbclub_backup_secret`. |
+| `BACKUP_CRON_SECRET` | Optional. Not needed when the Vault secret `crumbclub_backup_secret` exists (the function checks against Vault). Only for projects without Vault. |
 | `RESEND_API_KEY`, `BACKUP_EMAIL_TO`, `BACKUP_EMAIL_FROM` | Optional. Email a summary of each nightly backup with the orders CSV attached. Without them, no email is sent. |
 
 ### Database
@@ -50,13 +50,12 @@ The migrations create every table, RLS policy, RPC, stock trigger, the storage b
 ### Nightly backups (once per project)
 
 ```sql
--- SQL editor: the project URL and a long random secret, stored in Vault.
+-- SQL editor: the project URL and a random secret generated in the database, stored in Vault.
 select vault.create_secret('https://<project-ref>.supabase.co', 'crumbclub_project_url');
-select vault.create_secret('<random secret>', 'crumbclub_backup_secret');
+select vault.create_secret(encode(extensions.gen_random_bytes(32), 'hex'), 'crumbclub_backup_secret');
 ```
 
 ```bash
-supabase secrets set BACKUP_CRON_SECRET='<the same random secret>'
 supabase functions deploy daily-backup --no-verify-jwt
 ```
 
@@ -191,4 +190,4 @@ Details, conflict handling and how to add a device: [docs/offline-architecture.m
 - **An order needs attention**: tap the red pill to see the reason, fix it if you can, and use **Retry now**. If the tablet can never sync again, an owner uses **Emergency export** in the owner menu and contacts support.
 - **Update available won't update**: finish the current sale and wait for **All synced**; updates never interrupt an order.
 - **Staff PIN not recognised**: PIN changes reach the tablet on its next sync. Connect once.
-- **No backup warning in Reports**: check Supabase → Edge Functions → daily-backup logs, and that the Vault secrets and `BACKUP_CRON_SECRET` match. **Run backup now** tests it.
+- **No backup warning in Reports**: check Supabase → Edge Functions → daily-backup logs, and that both Vault secrets exist (and, if you set `BACKUP_CRON_SECRET` on the function, that it matches). **Run backup now** tests it.

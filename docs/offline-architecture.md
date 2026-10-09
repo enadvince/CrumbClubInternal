@@ -143,17 +143,18 @@ CSV rules everywhere: UTF-8 with BOM, one header row, ISO 8601 dates in Asia/Man
 ### Setting up the nightly job (once per Supabase project)
 
 ```sql
--- In the SQL editor. Use your project URL and a long random secret.
+-- In the SQL editor. The secret is generated inside the database and never shown.
 select vault.create_secret('https://<project-ref>.supabase.co', 'crumbclub_project_url');
-select vault.create_secret('<random secret>', 'crumbclub_backup_secret');
+select vault.create_secret(encode(extensions.gen_random_bytes(32), 'hex'), 'crumbclub_backup_secret');
 ```
 
-Then set the same secret on the function and deploy it:
+Then deploy the function:
 
 ```bash
-supabase secrets set BACKUP_CRON_SECRET='<random secret>'
 supabase functions deploy daily-backup --no-verify-jwt   # the function checks the secret or an owner's login itself
 ```
+
+The function checks the cron's secret against the same Vault entry (`backup_secret_matches`, callable only by the service role), so there is nothing to copy into the function's settings. Setting `BACKUP_CRON_SECRET` on the function overrides this, for projects without Vault.
 
 ## 9. Adding a new device
 

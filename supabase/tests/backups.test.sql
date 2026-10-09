@@ -36,4 +36,16 @@ do $$ begin
   exception when insufficient_privilege then null;
   end;
 end $$;
+-- Only the service role can check the cron secret; without Vault it never matches.
+do $$ begin
+  begin
+    perform public.backup_secret_matches('x');
+    raise exception 'ASSERTION FAILED: device checked the backup secret';
+  exception when insufficient_privilege then null;
+  end;
+end $$;
+select pg_temp.logout();
+set local role service_role;
+select pg_temp.check(not public.backup_secret_matches(repeat('a', 64)), 'no Vault secret: never matches');
+reset role;
 rollback;
