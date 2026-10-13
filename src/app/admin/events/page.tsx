@@ -27,7 +27,7 @@ export default function EventsPage() {
     <>
       <PageHeader
         title="Events"
-        subtitle="A pop-up or selling day: its menu, prices, stock and sales."
+        // subtitle="A pop-up or selling day: its menu, prices, stock and sales."
         actions={<button className="btn-primary" onClick={() => setCreating(true)}>+ New event</button>}
       />
       {error && <Notice tone="danger" className="mb-4">{error}</Notice>}

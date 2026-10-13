@@ -38,11 +38,7 @@ function lockState(o: Owner | null): "locked" | "wait" | null {
 const pinInput = "text-center text-2xl tracking-[0.6em]";
 const digits = (v: string) => v.replace(/\D/g, "").slice(0, 4);
 
-/**
- * Owners (main + co-owners) and staff in one list. Anyone can have their PIN
- * changed. Everyone except the main owner can be deactivated or removed;
- * co-owners only by the main owner. Removing needs your own owner PIN.
- */
+
 export default function PersonnelPage() {
   const { businessId, userId } = useOwner();
   const [ask, confirmEl] = useConfirm();
@@ -106,7 +102,7 @@ export default function PersonnelPage() {
       {confirmEl}
       <PageHeader
         title="Personnel"
-        subtitle="Owners and staff. Everyone rings up sales on the tablet with their own 4-digit PIN; co-owners also sign in to these pages with their email and PIN."
+        // subtitle="Owners and staff. Everyone rings up sales on the tablet with their own 4-digit PIN; co-owners also sign in to these pages with their email and PIN."
         actions={<>
           <button className="btn-primary" onClick={() => setAdding(true)}>+ Add staff</button>
           {isMain && <button className="btn-secondary" onClick={() => setAddingCoOwner(true)}>+ Add co-owner</button>}

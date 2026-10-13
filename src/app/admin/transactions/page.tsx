@@ -75,7 +75,7 @@ export default function TransactionsPage() {
       <BackToTop />
       <PageHeader
         title="Transactions"
-        subtitle="Every sale, including voids. Nothing is ever deleted."
+        // subtitle="Every sale, including voids. Nothing is ever deleted."
         actions={
           <>
             <button className="btn-secondary" disabled={exporting} onClick={() => exportCsv("transactions")}>⬇ Transactions CSV</button>
