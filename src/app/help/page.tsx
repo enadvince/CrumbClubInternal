@@ -90,7 +90,7 @@ export default function HelpPage() {
       <header className="space-y-2">
         <Logo className="text-2xl text-caramel" />
         <h1 className="text-3xl font-bold">Help</h1>
-        <p className="text-ink-soft">How the POS works offline, how syncing works, and what to do when an order fails.</p>
+        {/* <p className="text-ink-soft">How the POS works offline, how syncing works, and what to do when an order fails.</p> */}
         <p className="text-sm text-ink-soft">Last updated: <time dateTime={LAST_UPDATED}>{formatDate(LAST_UPDATED)}</time></p>
       </header>
       <section aria-labelledby="faq-h" className="space-y-3">

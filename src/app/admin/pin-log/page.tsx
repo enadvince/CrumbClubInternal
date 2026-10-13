@@ -59,7 +59,7 @@ export default function PinLogPage() {
     <>
       <PageHeader
         title="PIN log"
-        subtitle="Every time a PIN was used on the tablet, by owners and staff. This log can't be edited or deleted."
+        // subtitle="Every time a PIN was used on the tablet, by owners and staff. This log can't be edited or deleted."
       />
       <div className="mb-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
         <Field label="Person" htmlFor="pl-staff">
@@ -68,7 +68,7 @@ export default function PinLogPage() {
             {staff.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
           </select>
         </Field>
-        <Field label="What for" htmlFor="pl-action">
+        <Field label="Category of Use" htmlFor="pl-action">
           <select id="pl-action" className="input" value={action} onChange={(e) => setAction(e.target.value)}>
             <option value="">Anything</option>
             {Object.entries(PIN_ACTION_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}

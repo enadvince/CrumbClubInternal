@@ -14,7 +14,7 @@ type DiscountOptionRow = {
   id: string; name: string; type: "percent" | "fixed"; value: number; active: boolean; sort_order: number;
 };
 
-/** Preset discounts staff can apply with one tap on the POS. */
+
 export default function DiscountsPage() {
   const [options, setOptions] = useState<DiscountOptionRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -39,7 +39,7 @@ export default function DiscountsPage() {
     <>
       <PageHeader
         title="Discounts"
-        subtitle="Discount options staff can pick on the POS. Each needs a name and an amount (% or ₱)."
+        // subtitle="Discount options staff can pick on the POS. Each needs a name and an amount (% or ₱)."
         actions={<button className="btn-primary" onClick={() => setEditing("new")}>+ Add discount</button>}
       />
       {error && <Notice tone="danger" className="mb-4">{error}</Notice>}

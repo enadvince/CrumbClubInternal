@@ -38,7 +38,7 @@ export default function ProductsPage() {
     <>
       <PageHeader
         title="Products"
-        subtitle="Your master catalog. Prices here are defaults; each event can set its own."
+        // subtitle="Your master catalog. Prices here are defaults; each event can set its own."
         actions={<button className="btn-primary" onClick={() => setEditing("new")}>+ Add product</button>}
       />
       {error && <Notice tone="danger" className="mb-4">{error}</Notice>}

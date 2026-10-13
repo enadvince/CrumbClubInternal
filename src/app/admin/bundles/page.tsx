@@ -38,7 +38,7 @@ export default function BundlesPage() {
     <>
       <PageHeader
         title="Bundles"
-        subtitle="Selling a bundle takes stock from its component pastries."
+        // subtitle="Selling a bundle takes stock from its component pastries."
         actions={<button className="btn-primary" onClick={() => setEditing("new")}>+ Add bundle</button>}
       />
       {error && <Notice tone="danger" className="mb-4">{error}</Notice>}
