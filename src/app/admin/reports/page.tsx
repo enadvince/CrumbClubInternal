@@ -12,7 +12,9 @@ export default function ReportsPage() {
   return (
     <>
       <ScrollProgress />
-      <PageHeader title="Reports" subtitle="Low stock, shift reports, backups and exports." />
+      <PageHeader title="Reports" 
+      // subtitle="Low stock, shift reports, backups and exports." 
+      />
       <ReportsGate>
         <div className="space-y-6">
           <section className="card space-y-3 p-5" aria-labelledby="low-h">
