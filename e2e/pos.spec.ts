@@ -184,8 +184,8 @@ test("void and refund from the order history need an owner PIN and keep the orde
   await unlock(page);
   await sellOneUbeCash(page);
   await sellOneUbeCash(page);
-  await page.getByRole("button", { name: /Orders/ }).click();
-  const orders = page.getByRole("dialog", { name: "Orders" });
+  await page.getByRole("button", { name: /Order History/ }).click();
+  const orders = page.getByRole("dialog", { name: "Order History" });
   await expect(orders.getByTestId("order-row")).toHaveCount(2);
   // Search by the short number staff call out.
   await orders.getByRole("searchbox").fill("002");
@@ -227,7 +227,7 @@ test("close a shift offline with a ₱100 variance: owner PIN and note, provisio
   await context.setOffline(true);
   await page.evaluate(() => window.dispatchEvent(new Event("offline")));
   await sellOneUbeCash(page); // ₱120 cash
-  await page.getByRole("button", { name: /💵 Shift/ }).click();
+  await page.getByRole("button", { name: /💵 .* · Shift/ }).click();
   const panel = page.getByRole("dialog", { name: "Shift" });
   await panel.getByRole("button", { name: "Close shift" }).click();
   // Blind count: the expected amount is not shown before counting.
@@ -247,6 +247,27 @@ test("close a shift offline with a ₱100 variance: owner PIN and note, provisio
   await context.setOffline(false);
   await page.evaluate(() => window.dispatchEvent(new Event("online")));
   await expect(page.getByTestId("report-status")).toHaveText(/Final/, { timeout: 30_000 });
+});
+
+test("switch shift closes the shift and opens the next cashier's with the counted cash as float", async ({ page }) => {
+  await unlock(page); // Staff One, ₱1,000 float
+  await sellOneUbeCash(page); // ₱120 cash
+  await expect(page.getByRole("button", { name: /· Switch/ })).toHaveCount(0);
+  await page.getByRole("button", { name: /💵 Staff One · Shift/ }).click();
+  const panel = page.getByRole("dialog", { name: "Shift" });
+  await panel.getByRole("button", { name: /Switch shift/ }).click();
+  await panel.getByRole("radio", { name: "Enter total" }).click();
+  await panel.getByLabel("Counted cash").fill("1120");
+  await panel.getByRole("button", { name: "Show expected" }).click();
+  await panel.getByRole("button", { name: "Close and switch" }).click();
+  await page.getByRole("dialog", { name: "Switch shift?" }).getByRole("button", { name: "Close and switch" }).click();
+  await expect(page.getByRole("heading", { name: "Next cashier: enter your PIN" })).toBeVisible();
+  for (const d of "2222") await page.getByRole("button", { name: d, exact: true }).click();
+  // No open-shift screen: the new shift opens with the handed-over cash.
+  await expect(page.getByRole("tab", { name: /Individual Items/ })).toBeVisible();
+  await expect(page.getByText(/Shift switched from Staff One to Staff Two. Float ₱1,120.00 carried over./)).toBeVisible();
+  await page.getByRole("button", { name: /💵 Staff Two · Shift/ }).click();
+  await expect(page.getByRole("dialog", { name: "Shift" }).getByText(/by Staff Two with a float of ₱1,120.00/)).toBeVisible();
 });
 
 test("emergency export downloads unsynced orders", async ({ page, context }) => {
