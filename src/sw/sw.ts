@@ -8,6 +8,8 @@
  *    the POS shows "Update available" and only activates it when the cart and the sync queue
  *    are empty (see UpdateBanner).
  *  - Product photos (Supabase public storage): cache-first with expiry.
+ *  - OCR files (/ocr/: Tesseract worker, wasm core, English model): cache-first, fetched the
+ *    first time the POS warms them up, so reading payment photos works offline after that.
  *  - Other pages: network only, with the offline page as the fallback.
  *  - Supabase REST, RPC and auth calls are never handled here, so tokens and writes never
  *    touch the HTTP cache. Sales, the menu and the sync queue live in IndexedDB instead.
@@ -42,6 +44,11 @@ const serwist = new Serwist({
         cacheName: "product-photos",
         plugins: [new ExpirationPlugin({ maxEntries: 200, maxAgeSeconds: 60 * 60 * 24 * 30 })],
       }),
+    },
+    {
+      // On-tablet OCR for payment photos. Versioned by the cache name: bump it with tesseract.js.
+      matcher: ({ url, sameOrigin }) => sameOrigin && url.pathname.startsWith("/ocr/"),
+      handler: new CacheFirst({ cacheName: "ocr-v7", plugins: [new ExpirationPlugin({ maxEntries: 10 })] }),
     },
     {
       // Same-origin pages that are not precached (owner pages, login): always live.

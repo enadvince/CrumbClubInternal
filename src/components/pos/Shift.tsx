@@ -46,7 +46,7 @@ export function DenominationCounter({ value, onChange, idPrefix }: { value: Deno
 }
 
 /** Before the first sale: the cashier enters the opening float (optionally counted by denomination). */
-export function OpenShiftScreen({ eventId, staff, onOpened }: { eventId: string; staff: Staff; onOpened: (s: LocalShift) => void }) {
+export function OpenShiftScreen({ eventId, staff, onOpened, onSignOut }: { eventId: string; staff: Staff; onOpened: (s: LocalShift) => void; onSignOut: () => void }) {
   const [byDenom, setByDenom] = useState(false);
   const [amount, setAmount] = useState<Centavos | null>(null);
   const [denoms, setDenoms] = useState<Denominations>({});
@@ -69,6 +69,10 @@ export function OpenShiftScreen({ eventId, staff, onOpened }: { eventId: string;
     <div className="mx-auto w-full max-w-3xl space-y-4 p-4">
       <h1 className="text-2xl font-bold">Open shift</h1>
       <p className="text-ink-soft">Count the cash in the drawer before the first sale. Works offline.</p>
+      <div className="flex flex-wrap items-center gap-2 rounded-xl bg-cream p-3">
+        <span>Opening as <strong>👤 {staff.name}</strong></span>
+        <button className="btn-ghost ml-auto min-h-11 text-sm" onClick={onSignOut}>Not you? Sign out</button>
+      </div>
       {error && <p role="alert" className="font-semibold text-danger">✕ {error}</p>}
       <div className="flex gap-2" role="radiogroup" aria-label="How to enter the float">
         {([[false, "Enter total"], [true, "Count by denomination"]] as const).map(([v, label]) => (
@@ -106,17 +110,24 @@ function useShiftReport(shiftId: string | null): ShiftReport | null | undefined 
   }, [shiftId]);
 }
 
+/** From "Switch shift": the counted cash stays in the drawer and becomes the next cashier's opening float. */
+export type Handover = { fromName: string; float: Centavos; denoms: Denominations | null };
+
 type Step = "summary" | "cash_in" | "cash_out" | "cash_out_pin" | "count" | "review" | "approve";
 
-/** The shift panel: drawer movements, then a blind count to close. */
+/**
+ * The shift panel: drawer movements, then a blind count to close. "Switch shift" closes the
+ * same way and hands the counted cash to the next cashier as their opening float.
+ */
 export function ShiftDrawerPanel({
   open, onClose, shiftId, staff, cashier, threshold, eventId, onChanged, onClosed,
 }: {
   open: boolean; onClose: () => void; shiftId: string; staff: SnapshotStaff[]; cashier: Staff; threshold: Centavos; eventId: string;
-  onChanged: (message: string) => void; onClosed: (shiftId: string) => void;
+  onChanged: (message: string) => void; onClosed: (shiftId: string, handover: Handover | null) => void;
 }) {
   const report = useShiftReport(open ? shiftId : null);
   const [step, setStep] = useState<Step>("summary");
+  const [switching, setSwitching] = useState(false);
   const [amount, setAmount] = useState<Centavos | null>(null);
   const [reason, setReason] = useState("");
   const [denoms, setDenoms] = useState<Denominations>({});
@@ -132,7 +143,7 @@ export function ShiftDrawerPanel({
   const needsApproval = variance != null && varianceNeedsApproval(variance, threshold);
 
   function reset() {
-    setStep("summary"); setAmount(null); setReason(""); setDenoms({}); setCountedTotal(null); setNote(""); setError(null); setConfirmClose(null);
+    setStep("summary"); setSwitching(false); setAmount(null); setReason(""); setDenoms({}); setCountedTotal(null); setNote(""); setError(null); setConfirmClose(null);
   }
   function close() { reset(); onClose(); }
 
@@ -155,8 +166,10 @@ export function ShiftDrawerPanel({
         shiftId, staffId: cashier.id, staffName: cashier.name, countedCash: counted, countedDenoms: countMode === "denoms" ? denoms : null,
         expectedCash: report.expectedCash, threshold, varianceNote: note, approverId, approverName,
       });
+      const denomsUsed = countMode === "denoms" ? denoms : null;
+      const handover = switching ? { fromName: cashier.name, float: counted, denoms: denomsUsed } : null;
       reset();
-      onClosed(shiftId);
+      onClosed(shiftId, handover);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Couldn't close the shift");
       setConfirmClose(null);
@@ -194,7 +207,8 @@ export function ShiftDrawerPanel({
               <div className="flex flex-wrap gap-2">
                 <button className="btn-secondary" onClick={() => setStep("cash_in")}>+ Cash in</button>
                 <button className="btn-secondary" onClick={() => setStep("cash_out")}>− Cash out</button>
-                <button className="btn-danger ml-auto" onClick={() => setStep("count")}>Close shift</button>
+                <button className="btn-secondary ml-auto" onClick={() => { setSwitching(true); setStep("count"); }}>⇄ Switch shift</button>
+                <button className="btn-danger" onClick={() => { setSwitching(false); setStep("count"); }}>Close shift</button>
               </div>
             </>
           )}
@@ -220,7 +234,7 @@ export function ShiftDrawerPanel({
 
           {step === "count" && (
             <div className="space-y-3">
-              <h3 className="text-lg font-bold">Count the drawer</h3>
+              <h3 className="text-lg font-bold">{switching ? "Count the drawer to switch shift" : "Count the drawer"}</h3>
               <p className="text-sm text-ink-soft">Count every note and coin first. The expected amount is shown after you enter your count.</p>
               <div className="flex gap-2" role="radiogroup" aria-label="How to enter the count">
                 {([["denoms", "By denomination"], ["total", "Enter total"]] as const).map(([v, label]) => (
@@ -269,7 +283,7 @@ export function ShiftDrawerPanel({
                 <button className="btn-secondary" onClick={() => setStep("count")}>Recount</button>
                 <button className="btn-danger" disabled={needsApproval && !note.trim()}
                   onClick={() => (needsApproval ? setStep("approve") : setConfirmClose({ approverId: null, approverName: null }))}>
-                  {needsApproval ? "Continue: owner PIN" : "Close shift"}
+                  {needsApproval ? "Continue: owner PIN" : switching ? "Close and switch" : "Close shift"}
                 </button>
               </div>
             </div>
@@ -282,9 +296,13 @@ export function ShiftDrawerPanel({
             onConfirm={() => { setConfirmCashOut(false); setStep("cash_out_pin"); }}>
             <p>Take {formatPeso(amount ?? 0)} out of the drawer for: {reason}? It lowers the cash expected at close.</p>
           </ConfirmModal>
-          <ConfirmModal open={!!confirmClose} title="Close shift?" confirmLabel="Close shift" onClose={() => setConfirmClose(null)}
-            onConfirm={() => doClose(confirmClose!.approverId, confirmClose!.approverName)}>
-            <p>Counted {counted != null ? formatPeso(counted) : "-"}. After closing, a new shift must be opened before the next sale.</p>
+          <ConfirmModal open={!!confirmClose} title={switching ? "Switch shift?" : "Close shift?"} confirmLabel={switching ? "Close and switch" : "Close shift"}
+            onClose={() => setConfirmClose(null)} onConfirm={() => doClose(confirmClose!.approverId, confirmClose!.approverName)}>
+            {switching ? (
+              <p>Counted {counted != null ? formatPeso(counted) : "-"}. This closes {cashier.name}&apos;s shift. The next cashier enters their PIN and a new shift opens with this cash as the float.</p>
+            ) : (
+              <p>Counted {counted != null ? formatPeso(counted) : "-"}. After closing, a new shift must be opened before the next sale.</p>
+            )}
           </ConfirmModal>
         </div>
       )}

@@ -14,6 +14,7 @@ export const { dynamic, dynamicParams, revalidate, generateStaticParams, GET } =
     { url: "/help", revision },
     { url: "/~offline", revision },
   ],
-  // Keep the precache lean: skip source maps and the old hand-written worker.
-  globIgnores: ["**/*.map", "public/sw.js"],
+  // Keep the precache lean: skip source maps and the old hand-written worker. The OCR files
+  // (about 7 MB per tablet) are cached on first use instead; see the /ocr/ route in sw.ts.
+  globIgnores: ["**/*.map", "public/sw.js", "public/ocr/**"],
 });

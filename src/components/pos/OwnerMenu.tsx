@@ -59,7 +59,7 @@ export function OwnerMenu({
   }
 
   return (
-    <Modal open={open} onClose={onClose} title="Owner menu" wide>
+    <Modal open={open} onClose={onClose} title="Owner Menu" wide>
       {onOwnerView && (
         <button className="btn-primary mb-4 w-full" onClick={onOwnerView} disabled={!state.online}>
           📊 Go to owner dashboard{state.online ? "" : " (needs the internet)"}
