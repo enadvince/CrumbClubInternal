@@ -292,9 +292,13 @@ export function PosApp() {
     setOwnerViewState({ busy: true, error: null });
     const engine = engineRef.current;
     try {
-      // Upload what we can first; sync pauses while the owner pages are open.
-      await engine?.syncOnce().catch(() => {});
+      // Sync pauses while the owner pages are open. Upload unsynced sales first; with
+      // nothing to send, skip the full sync and only let a running one finish, so it
+      // can't carry on under the owner's login.
       engine?.stop();
+      const unsynced = await db.outbox.where("status").notEqual("synced").count();
+      if (unsynced > 0) await engine?.syncOnce().catch(() => {});
+      else await engine?.whenIdle();
       await enterOwnerView(staffId, pin);
       await db.setKv(KV.activeStaff, null);
       window.location.href = "/admin/dashboard";

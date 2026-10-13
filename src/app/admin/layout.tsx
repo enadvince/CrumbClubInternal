@@ -1,18 +1,21 @@
 export const dynamic = "force-dynamic";
 
 import { redirect } from "next/navigation";
-import { getSessionContext } from "@/lib/supabase/server";
+import { getPageSessionContext } from "@/lib/supabase/server";
 import { Logo, Notice } from "@/components/ui";
 import { AdminNav } from "./AdminNav";
 import { OwnerProvider } from "./OwnerContext";
 
 export default async function AdminLayout({ children }: { children: React.ReactNode }) {
-  const { supabase, user, membership } = await getSessionContext();
+  const { supabase, user, membership } = await getPageSessionContext();
   if (!user) redirect("/login?next=/admin/dashboard");
   if (!membership) redirect("/setup");
   if (membership.role !== "owner") redirect("/pos");
-  // A deactivated co-owner keeps their login but has no owner access.
-  const { data: isOwner } = await supabase.rpc("is_owner", { p_business: membership.business_id });
+  // A deactivated co-owner keeps their login but has no owner access. The main
+  // owner can't be deactivated, so only co-owners need the extra check.
+  const isOwner = membership.co_owner
+    ? (await supabase.rpc("is_owner", { p_business: membership.business_id })).data
+    : true;
   if (!isOwner) {
     return (
       <main className="mx-auto max-w-md space-y-4 px-4 py-16">

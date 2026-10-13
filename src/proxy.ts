@@ -23,8 +23,11 @@ export async function proxy(request: NextRequest) {
     },
   });
 
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user && request.nextUrl.pathname.startsWith("/admin")) {
+  // getClaims verifies the JWT locally (asymmetric signing keys), so most
+  // requests skip a round trip to Supabase Auth; it still refreshes an expired
+  // session, and falls back to the Auth server for legacy symmetric keys.
+  const { data } = await supabase.auth.getClaims();
+  if (!data?.claims?.sub && request.nextUrl.pathname.startsWith("/admin")) {
     const login = request.nextUrl.clone();
     login.pathname = "/login";
     login.searchParams.set("next", request.nextUrl.pathname);
