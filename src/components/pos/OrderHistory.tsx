@@ -87,7 +87,7 @@ export function OrderHistory({
 
   return (
     <>
-    <Modal open={open} onClose={onClose} title="Orders" wide>
+    <Modal open={open} onClose={onClose} title="Order History" wide>
       <div className="space-y-3">
         <label className="block">
           <span className="label">Search by order number</span>

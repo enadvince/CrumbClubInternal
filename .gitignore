@@ -9,3 +9,4 @@ next-env.d.ts
 /playwright-report
 /supabase/.temp
 /supabase/tests/.pgdata
+/public/ocr

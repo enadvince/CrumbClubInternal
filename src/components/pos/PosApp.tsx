@@ -11,13 +11,14 @@ import { uuidv7 } from "@/lib/uuid";
 import { supabaseTransport } from "@/lib/offline/transport";
 import { demoTransport, isPosDemo } from "@/lib/offline/demoTransport";
 import { localAvailability, localStock, summarizeOutbox } from "@/lib/offline/stock";
-import { isDuplicateQrRef, logPinUseLocally, openShiftFor, recordSaleLocally, undoSale, UNDO_WINDOW_MS } from "@/lib/offline/actions";
+import { isDuplicateQrRef, logPinUseLocally, openShiftFor, openShiftLocally, recordSaleLocally, undoSale, UNDO_WINDOW_MS } from "@/lib/offline/actions";
 import { DEFAULT_VARIANCE_THRESHOLD } from "@/lib/pos/shift";
 import {
   addBundle, addProduct, addWouldOversell, buildMenu, buildSale, bundleState, canIncrement, changeQuantity, incrementWouldOversell,
   isTracked, priceCart, productState, pruneCart, remainingStock,
 } from "@/lib/pos/cart";
 import { applySuggestion, suggestBundle } from "@/lib/pos/suggest";
+import { warmOcr } from "@/lib/pos/ocr";
 import type { CartLine, Discount, MenuBundle, MenuProduct, PaymentDetails, SnapshotStaff } from "@/lib/pos/types";
 import { ConfirmModal, useConfirm } from "@/components/ConfirmModal";
 import { formatPeso } from "@/lib/money";
@@ -30,7 +31,8 @@ import { Modal } from "@/components/Modal";
 import { PinPad } from "./PinPad";
 import { OwnerPinGate } from "./OwnerPinGate";
 import { OrderHistory } from "./OrderHistory";
-import { OpenShiftScreen, ShiftDrawerPanel, ShiftReportPage } from "./Shift";
+import { OpenShiftScreen, ShiftDrawerPanel, ShiftReportPage, type Handover } from "./Shift";
+import { Clock } from "./Clock";
 import { ItemCard } from "./ItemCard";
 import { CartPanel } from "./CartPanel";
 import { MixPicker } from "./MixPicker";
@@ -78,6 +80,8 @@ export function PosApp() {
   const [search, setSearch] = useState("");
   const [showDrawer, setShowDrawer] = useState(false);
   const [reportShiftId, setReportShiftId] = useState<string | null>(null);
+  // Set by "Switch shift": the next cashier to enter a PIN gets a shift opened with this float.
+  const [handover, setHandover] = useState<(Handover & { at: number }) | null>(null);
   const [ownerGate, setOwnerGate] = useState(false);
   // pin is kept only while the menu is open, so "Owner dashboard" doesn't ask for it twice.
   const [ownerMenu, setOwnerMenu] = useState<{ staffId: string; pin?: string } | null>(null);
@@ -91,6 +95,13 @@ export function PosApp() {
   const [stockConfirm, setStockConfirm] = useState<{ short: MenuProduct[]; apply: () => void } | null>(null);
 
   useWakeLock(boot === "ready");
+
+  // Fetch the OCR files for payment photos in the background, so they also work offline later.
+  useEffect(() => {
+    if (boot !== "ready") return;
+    const t = setTimeout(() => void warmOcr(), 15_000);
+    return () => clearTimeout(t);
+  }, [boot]);
 
   // ---- Boot: is this tablet paired? Works offline from the cached session + local flag.
   useEffect(() => {
@@ -218,6 +229,22 @@ export function PosApp() {
     await db.setKv(KV.activeStaff, null);
     setShowShift(false);
   }, [db]);
+
+  // Switch shift: once the next cashier is in, open their shift straight away with the handed-over cash.
+  const openingHandover = useRef(false);
+  useEffect(() => {
+    // Only a PIN entered after the switch counts: the outgoing cashier is still signed in for a moment.
+    if (!handover || !currentStaff || currentStaff.unlockedAt <= handover.at || !event || openShift === undefined || openingHandover.current) return;
+    if (shift) return setHandover(null);
+    openingHandover.current = true;
+    openShiftLocally(db, { eventId: event.id, staffId: currentStaff.id, staffName: currentStaff.name, openingFloat: handover.float, openingDenoms: handover.denoms })
+      .then(() => {
+        setNotice(`Shift switched from ${handover.fromName} to ${currentStaff.name}. Float ${formatPeso(handover.float)} carried over.`);
+        engineRef.current?.requestSync();
+      })
+      .catch((e) => setNotice(`Couldn't open the new shift: ${errorMessage(e)}`))
+      .finally(() => { openingHandover.current = false; setHandover(null); });
+  }, [handover, currentStaff, event, openShift, shift, db]);
 
   function chooseTab(t: "bundles" | "pastries") {
     setTab(t);
@@ -371,17 +398,18 @@ export function PosApp() {
 
   const actions: { key: string; node: React.ReactNode }[] = [
     ...(currentStaff ? [
-      { key: "orders", node: <button className="btn-secondary min-h-11 text-sm" onClick={() => { setMenuOpen(false); setShowOrders(true); }}>🧾 Orders</button> },
-      ...(shift ? [{ key: "shift", node: <button className="btn-secondary min-h-11 text-sm" onClick={() => { setMenuOpen(false); setShowDrawer(true); }}>💵 Shift</button> }] : []),
+      { key: "orders", node: <button className="btn-secondary min-h-11 text-sm" onClick={() => { setMenuOpen(false); setShowOrders(true); }}>🧾 Order History</button> },
       { key: "mine", node: <button className="btn-secondary min-h-11 text-sm" onClick={() => { setMenuOpen(false); setShowShift(true); }}>My sales</button> },
-      { key: "switch", node: (
-        <button className="btn-secondary min-h-11 text-sm" onClick={() => { setMenuOpen(false); void lock(); }} aria-label={`Signed in as ${currentStaff.name}. Switch staff.`}>
-          👤 {currentStaff.name} · Switch
+      { key: "shift", node: shift ? (
+        <button className="btn-secondary min-h-11 text-sm" onClick={() => { setMenuOpen(false); setShowDrawer(true); }}>
+          💵 {currentStaff.name} · Shift
         </button>
+      ) : (
+        <span className="inline-flex min-h-11 items-center rounded-xl bg-cream px-3 text-sm font-semibold">👤 {currentStaff.name}</span>
       ) },
     ] : []),
     ...(!isPosDemo() ? [{ key: "ownerview", node: <button className="btn-ghost min-h-11 text-sm" onClick={() => { setMenuOpen(false); showOwnerViewGate(); }}>📊 Owner view</button> }] : []),
-    { key: "owner", node: <button className="btn-ghost min-h-11 text-sm" onClick={() => { setMenuOpen(false); openOwnerMenu(); }}>⚙ Owner</button> },
+    { key: "owner", node: <button className="btn-ghost min-h-11 text-sm" onClick={() => { setMenuOpen(false); openOwnerMenu(); }}>⚙ Owner Menu</button> },
     { key: "help", node: <Link className="btn-ghost min-h-11 text-sm" href="/help">❓ Help</Link> },
     { key: "theme", node: <ThemeToggle /> },
   ];
@@ -391,7 +419,10 @@ export function PosApp() {
       <div className="flex flex-wrap items-center gap-2">
         <Logo className="text-lg text-caramel" />
         <div className="min-w-0 flex-1 basis-40">
-          <p className="truncate font-bold">{event ? event.name : "No live event"}</p>
+          <p className="flex items-baseline gap-2 font-bold">
+            <span className="truncate">{event ? event.name : "No live event"}</span>
+            <Clock className="shrink-0 text-sm font-semibold text-caramel" />
+          </p>
           <p className="truncate text-xs text-ink-soft">
             {event ? `${formatDateRange(event.starts_on, event.ends_on)}${event.venue ? ` · ${event.venue}` : ""} · ` : ""}
             {device?.value?.deviceCode ? `Tablet ${device.value.deviceCode}` : ""}
@@ -470,7 +501,9 @@ export function PosApp() {
         {header}
         <UnsyncedBanner summary={summary} now={now} onOpen={() => setShowSync(true)} />
         <div className="flex flex-1 items-center justify-center p-4">
-          <PinPad staff={staff} title="Enter your PIN" subtitle={snapshot.business.name} onUnlock={unlock} />
+          <PinPad staff={staff} title={handover ? "Next cashier: enter your PIN" : "Enter your PIN"}
+            subtitle={handover ? `${handover.fromName}'s shift is closed. Your shift opens with ${formatPeso(handover.float)} in the drawer.` : snapshot.business.name}
+            onUnlock={unlock} />
         </div>
         {overlays}
       </main>
@@ -512,7 +545,9 @@ export function PosApp() {
       <main id="main" className="flex min-h-dvh flex-col">
         {header}
         <UnsyncedBanner summary={summary} now={now} onOpen={() => setShowSync(true)} />
-        <OpenShiftScreen eventId={menu.eventId} staff={currentStaff} onOpened={() => setNotice("Shift opened. Ready to sell.")} />
+        {handover ? <Centered><Spinner label="Opening shift" /></Centered> : (
+          <OpenShiftScreen eventId={menu.eventId} staff={currentStaff} onOpened={() => setNotice("Shift opened. Ready to sell.")} onSignOut={() => void lock()} />
+        )}
         {overlays}
       </main>
     );
@@ -714,7 +749,11 @@ export function PosApp() {
         threshold={varianceThreshold}
         eventId={menu.eventId}
         onChanged={(m) => { setNotice(m); engineRef.current?.requestSync(); }}
-        onClosed={(id) => { setShowDrawer(false); setReportShiftId(id); engineRef.current?.requestSync(); }}
+        onClosed={(id, next) => {
+          setShowDrawer(false);
+          engineRef.current?.requestSync();
+          if (next) { setHandover({ ...next, at: Date.now() }); void lock(); } else setReportShiftId(id);
+        }}
       />
       <ShiftPanel open={showShift} onClose={() => setShowShift(false)} eventId={menu.eventId} staffId={currentStaff.id} staffName={currentStaff.name} />
       {overlays}

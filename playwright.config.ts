@@ -14,7 +14,7 @@ export default defineConfig({
   },
   projects: [{ name: "tablet", use: { ...devices["Desktop Chrome"], viewport: { width: 1280, height: 800 }, hasTouch: true } }],
   webServer: {
-    command: "NEXT_PUBLIC_POS_DEMO=1 npx next build && NEXT_PUBLIC_POS_DEMO=1 PORT=3200 npx next start",
+    command: "NEXT_PUBLIC_POS_DEMO=1 npm run build && NEXT_PUBLIC_POS_DEMO=1 PORT=3200 npx next start",
     url: "http://localhost:3200/login",
     timeout: 240_000,
     reuseExistingServer: !process.env.CI,

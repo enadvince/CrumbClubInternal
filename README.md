@@ -139,14 +139,14 @@ Details, conflict handling and how to add a device: [docs/offline-architecture.m
 
 **Before you leave for the venue** (owner, with internet)
 1. In **Events**, open today's event. Check prices and starting stock, enter the **opening float**, and tap **Go live**.
-2. Open the POS on the tablet **while still on Wi-Fi**. Wait for the green **All synced** pill. Today's menu is now saved on the tablet.
+2. Open the POS on the tablet **while still on Wi-Fi**. Wait for the green **All synced** pill. Today's menu is now saved on the tablet. Leave it open for a minute so the payment-photo reader (about 7 MB, once per tablet) downloads too.
 3. Charge the tablet and bring a power bank. Keep a phone hotspot available.
 
 **Opening**
 1. Open **Crumb Club POS** from the tablet's home screen. It works without internet.
 2. Enter **your 4-digit PIN**.
 3. **Open shift:** count the cash in the drawer (total, or note by note) and tap **Open shift and start selling**.
-4. Changing cashiers? Tap **👤 your name · Switch** and the next person enters their PIN. The shift stays open.
+4. Changing cashiers? Tap **💵 your name · Shift → ⇄ Switch shift** and count the drawer. Your shift closes, the next person enters their PIN, and their shift opens straight away with the counted cash as the float.
 
 **Making a sale**
 1. Tap pastries or bundles, or type in **Search products and bundles**. Use **− / +** in the cart to change amounts.
@@ -154,22 +154,22 @@ Details, conflict handling and how to add a device: [docs/offline-architecture.m
 3. A purple **💡 Switch to … and save ₱X** button means the customer gets a better price as a bundle. Tap it.
 4. Tap **Checkout**:
    - **Cash:** tap **Exact**, a quick amount, or type pesos. Give the **change due** shown, then **Complete sale**.
-   - **QR Ph (GCash / InstaPay):** wait for the GCash merchant notification, type its **reference number**, tick the confirmation box, optionally take a **photo of the payment**, then **Complete sale**. QR payments are saved as **awaiting verification** until an owner checks them.
+   - **QR Ph (GCash / InstaPay):** wait for the GCash merchant notification and tap **📷 Photo of payment**. The tablet reads the **reference number** from the photo and fills it in (works offline); check it matches, or type it if it couldn't read it. Tick the confirmation box, then **Complete sale**. QR payments are saved as **awaiting verification** until an owner checks them.
 5. The screen shows **✓ Sale saved** and the order number, e.g. **#042** (T1-261008-0042). Call out the three digits.
 6. Mistake right away? Tap **Undo** within **60 seconds**. An owner enters their PIN to approve.
 
 **Voids and refunds** (owner PIN needed)
-- Tap **🧾 Orders**, search the number, then **Void order**, **Void item** or **Refund**. Pick a reason (wrong item, customer changed mind, duplicate, other with a note). For refunds, choose the items, how many, and cash or QR. A voided order keeps its number and shows crossed out.
+- Tap **🧾 Order History**, search the number, then **Void order**, **Void item** or **Refund**. Pick a reason (wrong item, customer changed mind, duplicate, other with a note). For refunds, choose the items, how many, and cash or QR. A voided order keeps its number and shows crossed out.
 
 **What the screen tells you**
 - **Low: 3 left** (amber): running low. **Out of stock** (red): none left on record. You can still sell it after confirming, if it's really there.
 - Pill **All synced** (green): everything is on the server. **3 orders pending sync** (amber): saved, uploading soon. **Syncing...** (blue). **Offline: orders saved on this device** (grey): keep selling. **orders need attention** (red): tap it, read the reason, try **Retry now**, and tell an owner if it keeps failing.
 - Red banner "orders have not synced": connect to Wi-Fi or a hotspot.
 
-**Cash in and cash out:** tap **💵 Shift**. Cash out (e.g. paying a supplier) needs an owner PIN.
+**Cash in and cash out:** tap **💵 your name · Shift**. Cash out (e.g. paying a supplier) needs an owner PIN.
 
 **Closing your shift**
-1. Tap **💵 Shift → Close shift**. Count every note and coin first; the expected amount shows only after you enter your count.
+1. Tap **💵 your name · Shift → Close shift**. Count every note and coin first; the expected amount shows only after you enter your count.
 2. If the difference is more than ₱50, add a note and ask an owner for their PIN.
 3. The shift report shows. **Provisional** means some orders haven't synced yet; it becomes **Final** by itself. Print it if needed.
 

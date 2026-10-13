@@ -1,12 +1,16 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Modal } from "@/components/Modal";
 import { formatPeso, pesos } from "@/lib/money";
 import type { PaymentDetails, PaymentPhoto } from "@/lib/pos/types";
 import { compressPhoto } from "@/lib/pos/photo";
+import { readPaymentReference } from "@/lib/pos/ocr";
 import { tapFeedback } from "./feedback";
 
 const QUICK = [100, 200, 500, 1000];
+/** Reading the reference number from the payment photo. "differs": the photo disagrees with what was typed. */
+type OcrState = { kind: "idle" | "reading" | "filled" | "none" | "error" } | { kind: "differs"; reference: string };
+
 const KEYS = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "00", "0", "back"] as const;
 
 export function CheckoutModal({
@@ -26,6 +30,13 @@ export function CheckoutModal({
   const [duplicate, setDuplicate] = useState(false);
   const [photo, setPhoto] = useState<{ data: PaymentPhoto; url: string } | null>(null);
   const [photoBusy, setPhotoBusy] = useState(false);
+  const [ocr, setOcr] = useState<OcrState>({ kind: "idle" });
+  // True while the reference field holds what OCR read (so a retake may replace it, but typing may not be overwritten).
+  const [refFromPhoto, setRefFromPhoto] = useState(false);
+  const ocrRun = useRef(0);
+  // Latest field values for the OCR result, which lands a second or two after the photo.
+  const field = useRef({ reference, refFromPhoto });
+  useEffect(() => { field.current = { reference, refFromPhoto }; }, [reference, refFromPhoto]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -33,6 +44,7 @@ export function CheckoutModal({
     if (open) {
       setMethod("cash"); setReceived(null); setTyped(""); setReference(""); setQrConfirmed(false);
       setDuplicate(false); setBusy(false); setError(null);
+      setOcr({ kind: "idle" }); setRefFromPhoto(false); ocrRun.current++;
       setPhoto((p) => { if (p) URL.revokeObjectURL(p.url); return null; });
     }
   }, [open]);
@@ -44,10 +56,32 @@ export function CheckoutModal({
       const data = await compressPhoto(file);
       const url = URL.createObjectURL(new Blob([data.bytes], { type: data.mime }));
       setPhoto((p) => { if (p) URL.revokeObjectURL(p.url); return { data, url }; });
+      setPhotoBusy(false);
+      void readReference(new Blob([data.bytes], { type: data.mime }));
     } catch (e) {
       setError(e instanceof Error ? e.message : "Couldn't use that photo");
-    } finally {
       setPhotoBusy(false);
+    }
+  }
+
+  /** Fills in the reference from the photo, unless the cashier already typed a different one. */
+  async function readReference(image: Blob) {
+    const run = ++ocrRun.current;
+    setOcr({ kind: "reading" });
+    try {
+      const found = await readPaymentReference(image);
+      if (run !== ocrRun.current) return;
+      if (!found) return setOcr({ kind: "none" });
+      const typed = field.current.reference.trim();
+      if (!typed || field.current.refFromPhoto || typed === found) {
+        setReference(found);
+        setRefFromPhoto(true);
+        setOcr({ kind: "filled" });
+      } else {
+        setOcr({ kind: "differs", reference: found });
+      }
+    } catch {
+      if (run === ocrRun.current) setOcr({ kind: "error" });
     }
   }
 
@@ -145,8 +179,26 @@ export function CheckoutModal({
             <ol className="list-decimal space-y-1 rounded-xl bg-cream p-3 pl-8 text-sm">
               <li>Customer scans the Crumb Club QR Ph code and pays <strong>{formatPeso(total)}</strong>.</li>
               <li>Check the <strong>GCash merchant notification</strong> shows the payment received.</li>
-              <li>Enter the reference number from that notification.</li>
+              <li>Take a photo of that notification to fill in the reference number, or type it in.</li>
             </ol>
+            <div className="flex flex-wrap items-center gap-3 rounded-xl bg-cream p-3">
+              {photo ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={photo.url} alt="Payment confirmation photo" className="h-16 w-16 rounded-lg object-cover" />
+              ) : null}
+              <label className="btn-secondary min-h-12 cursor-pointer">
+                <input type="file" accept="image/*" capture="environment" className="sr-only" onChange={(e) => { void takePhoto(e.target.files?.[0]); e.target.value = ""; }} />
+                {photoBusy ? "Processing..." : photo ? "📷 Retake photo" : "📷 Photo of payment (fills in the reference)"}
+              </label>
+              {photo && (
+                <button className="btn-ghost min-h-12" onClick={() => {
+                  ocrRun.current++;
+                  setOcr({ kind: "idle" });
+                  setPhoto((p) => { if (p) URL.revokeObjectURL(p.url); return null; });
+                }}>Remove</button>
+              )}
+              <p className="w-full text-xs text-ink-soft">QR payments are saved as awaiting verification. An owner confirms them against the GCash history.</p>
+            </div>
             <label className="block">
               <span className="label">Reference number (required)</span>
               <input
@@ -154,10 +206,11 @@ export function CheckoutModal({
                 inputMode="numeric"
                 autoComplete="off"
                 value={reference}
-                onChange={(e) => setReference(e.target.value.replace(/\s/g, ""))}
+                onChange={(e) => { setReference(e.target.value.replace(/\s/g, "")); setRefFromPhoto(false); }}
                 placeholder="e.g. 5012345678901"
               />
             </label>
+            <OcrStatus state={ocr} onUse={(r) => { setReference(r); setRefFromPhoto(true); setOcr({ kind: "filled" }); }} />
             {duplicate && (
               <p role="alert" className="rounded-xl border border-warn/40 bg-warn-light p-3 font-semibold text-warn">
                 ⚠ This reference number was already used for another sale. Double-check the GCash notification before continuing.
@@ -167,18 +220,6 @@ export function CheckoutModal({
               <input type="checkbox" className="h-6 w-6 accent-caramel" checked={qrConfirmed} onChange={(e) => setQrConfirmed(e.target.checked)} />
               <span className="font-semibold">I saw the payment of {formatPeso(total)} in the GCash merchant notification</span>
             </label>
-            <div className="flex flex-wrap items-center gap-3 rounded-xl bg-cream p-3">
-              {photo ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img src={photo.url} alt="Payment confirmation photo" className="h-16 w-16 rounded-lg object-cover" />
-              ) : null}
-              <label className="btn-secondary min-h-12 cursor-pointer">
-                <input type="file" accept="image/*" capture="environment" className="sr-only" onChange={(e) => { void takePhoto(e.target.files?.[0]); e.target.value = ""; }} />
-                {photoBusy ? "Processing..." : photo ? "📷 Retake photo" : "📷 Photo of payment (optional)"}
-              </label>
-              {photo && <button className="btn-ghost min-h-12" onClick={() => setPhoto((p) => { if (p) URL.revokeObjectURL(p.url); return null; })}>Remove</button>}
-              <p className="w-full text-xs text-ink-soft">QR payments are saved as awaiting verification. An owner confirms them against the GCash history.</p>
-            </div>
           </div>
         )}
 
@@ -193,4 +234,23 @@ export function CheckoutModal({
       </div>
     </Modal>
   );
+}
+
+function OcrStatus({ state, onUse }: { state: OcrState; onUse: (reference: string) => void }) {
+  if (state.kind === "idle") return null;
+  if (state.kind === "differs") {
+    return (
+      <div role="status" className="flex flex-wrap items-center gap-2 rounded-xl bg-warn-light p-3 text-sm font-semibold text-warn">
+        <span>The photo shows {state.reference}, not what was typed.</span>
+        <button className="btn-secondary min-h-11 text-sm" onClick={() => onUse(state.reference)}>Use {state.reference}</button>
+      </div>
+    );
+  }
+  const text = {
+    reading: "⏳ Reading the reference number from the photo...",
+    filled: "✓ Filled in from the photo. Check it matches the notification.",
+    none: "Couldn't find a reference number in the photo. Type it in, or retake the photo closer.",
+    error: "Couldn't read the photo on this tablet right now. Type the reference number in.",
+  }[state.kind];
+  return <p role="status" className={`text-sm font-semibold ${state.kind === "filled" ? "text-ok" : "text-ink-soft"}`}>{text}</p>;
 }
