@@ -18,6 +18,7 @@ import {
   isTracked, priceCart, productState, pruneCart, remainingStock,
 } from "@/lib/pos/cart";
 import { applySuggestion, suggestBundle } from "@/lib/pos/suggest";
+import { warmOcr } from "@/lib/pos/ocr";
 import type { CartLine, Discount, MenuBundle, MenuProduct, PaymentDetails, SnapshotStaff } from "@/lib/pos/types";
 import { ConfirmModal, useConfirm } from "@/components/ConfirmModal";
 import { formatPeso } from "@/lib/money";
@@ -94,6 +95,13 @@ export function PosApp() {
   const [stockConfirm, setStockConfirm] = useState<{ short: MenuProduct[]; apply: () => void } | null>(null);
 
   useWakeLock(boot === "ready");
+
+  // Fetch the OCR files for payment photos in the background, so they also work offline later.
+  useEffect(() => {
+    if (boot !== "ready") return;
+    const t = setTimeout(() => void warmOcr(), 15_000);
+    return () => clearTimeout(t);
+  }, [boot]);
 
   // ---- Boot: is this tablet paired? Works offline from the cached session + local flag.
   useEffect(() => {

@@ -143,6 +143,55 @@ test("QR Ph needs a reference and confirmation", async ({ page }) => {
   await expect(page.getByText("Sale saved")).toBeVisible();
 });
 
+/** A screenshot-like image of a GCash receipt, drawn in the browser. */
+async function receiptImage(page: Page): Promise<Buffer> {
+  const dataUrl = await page.evaluate(() => {
+    const c = document.createElement("canvas");
+    c.width = 900; c.height = 520;
+    const ctx = c.getContext("2d")!;
+    ctx.fillStyle = "#fff"; ctx.fillRect(0, 0, c.width, c.height);
+    ctx.fillStyle = "#111"; ctx.font = "40px Arial";
+    ["Sent via GCash", "Amount 120.00", "Total Amount Sent PHP 120.00", "Ref No. 5012 345 678901", "Oct 13, 2026 2:15 PM"]
+      .forEach((line, i) => ctx.fillText(line, 50, 90 + i * 90));
+    return c.toDataURL("image/png");
+  });
+  return Buffer.from(dataUrl.split(",")[1], "base64");
+}
+
+async function startQrCheckout(page: Page) {
+  await page.getByRole("tab", { name: /Individual Items/ }).click();
+  await page.getByRole("button", { name: /^Ensaymada/ }).click();
+  await page.getByRole("button", { name: /^Checkout/ }).click();
+  await page.getByRole("radio", { name: /QR Ph/ }).click();
+}
+
+test("a photo of the payment fills in the reference number, offline too", async ({ page, context }) => {
+  await unlock(page);
+  await page.evaluate(async () => {
+    await navigator.serviceWorker.ready;
+    if (!navigator.serviceWorker.controller) {
+      await new Promise((r) => navigator.serviceWorker.addEventListener("controllerchange", () => r(null), { once: true }));
+    }
+  });
+  const image = await receiptImage(page);
+  await startQrCheckout(page);
+  await page.locator('input[type="file"]').setInputFiles({ name: "receipt.png", mimeType: "image/png", buffer: image });
+  await expect(page.getByText(/Filled in from the photo/)).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByPlaceholder(/5012345678901/)).toHaveValue("5012345678901");
+
+  // A fresh page with no network reads it from the service worker's cached OCR files.
+  await context.setOffline(true);
+  const fresh = await context.newPage();
+  await fresh.goto("/pos");
+  await expect(fresh.getByRole("tab", { name: /Individual Items/ })).toBeVisible({ timeout: 20_000 });
+  await startQrCheckout(fresh);
+  await fresh.getByPlaceholder(/5012345678901/).fill("123");
+  await fresh.locator('input[type="file"]').setInputFiles({ name: "receipt.png", mimeType: "image/png", buffer: image });
+  // Something was already typed, so it offers the photo's number instead of overwriting.
+  await fresh.getByRole("button", { name: "Use 5012345678901" }).click({ timeout: 30_000 });
+  await expect(fresh.getByPlaceholder(/5012345678901/)).toHaveValue("5012345678901");
+});
+
 test("cold start with no network: the POS opens from the service worker cache", async ({ page, context }) => {
   await unlock(page);
   // Wait for the service worker to take control and cache the page and its chunks.

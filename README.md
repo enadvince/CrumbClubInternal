@@ -139,7 +139,7 @@ Details, conflict handling and how to add a device: [docs/offline-architecture.m
 
 **Before you leave for the venue** (owner, with internet)
 1. In **Events**, open today's event. Check prices and starting stock, enter the **opening float**, and tap **Go live**.
-2. Open the POS on the tablet **while still on Wi-Fi**. Wait for the green **All synced** pill. Today's menu is now saved on the tablet.
+2. Open the POS on the tablet **while still on Wi-Fi**. Wait for the green **All synced** pill. Today's menu is now saved on the tablet. Leave it open for a minute so the payment-photo reader (about 7 MB, once per tablet) downloads too.
 3. Charge the tablet and bring a power bank. Keep a phone hotspot available.
 
 **Opening**
@@ -154,7 +154,7 @@ Details, conflict handling and how to add a device: [docs/offline-architecture.m
 3. A purple **💡 Switch to … and save ₱X** button means the customer gets a better price as a bundle. Tap it.
 4. Tap **Checkout**:
    - **Cash:** tap **Exact**, a quick amount, or type pesos. Give the **change due** shown, then **Complete sale**.
-   - **QR Ph (GCash / InstaPay):** wait for the GCash merchant notification, type its **reference number**, tick the confirmation box, optionally take a **photo of the payment**, then **Complete sale**. QR payments are saved as **awaiting verification** until an owner checks them.
+   - **QR Ph (GCash / InstaPay):** wait for the GCash merchant notification and tap **📷 Photo of payment**. The tablet reads the **reference number** from the photo and fills it in (works offline); check it matches, or type it if it couldn't read it. Tick the confirmation box, then **Complete sale**. QR payments are saved as **awaiting verification** until an owner checks them.
 5. The screen shows **✓ Sale saved** and the order number, e.g. **#042** (T1-261008-0042). Call out the three digits.
 6. Mistake right away? Tap **Undo** within **60 seconds**. An owner enters their PIN to approve.
 
