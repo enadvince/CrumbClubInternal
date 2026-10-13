@@ -29,19 +29,24 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: `Too many wrong PINs. Try again in ${Math.ceil(wait / 60000)} min.` }, { status: 429 });
   }
 
-  const { data: staff } = await admin
-    .from("staff")
-    .select("id, name, role, user_id, pin_hash")
-    .eq("id", body.staffId)
-    .eq("business_id", membership.business_id)
-    .eq("role", "owner")
-    .eq("active", true)
-    .maybeSingle();
+  // Independent lookups run together to keep the owner-view switch quick.
+  const [{ data: staff }, { data: device }] = await Promise.all([
+    admin
+      .from("staff")
+      .select("id, name, role, user_id, pin_hash")
+      .eq("id", body.staffId)
+      .eq("business_id", membership.business_id)
+      .eq("role", "owner")
+      .eq("active", true)
+      .maybeSingle(),
+    admin.from("memberships").select("label").eq("user_id", user.id).eq("business_id", membership.business_id).maybeSingle(),
+  ]);
   const ok = !!staff?.pin_hash && (await bcrypt.compare(body.pin, staff.pin_hash));
 
   const updated = nextLock(lock, ok, now);
-  await admin.auth.admin.updateUserById(user.id, { app_metadata: { ...user.app_metadata, ...updated } });
+  const saveLock = () => admin.auth.admin.updateUserById(user.id, { app_metadata: { ...user.app_metadata, ...updated } });
   if (!ok) {
+    await saveLock();
     const locked = lockRemaining(updated, now) > 0;
     return NextResponse.json(
       { error: locked ? "Too many wrong PINs. Owner view is locked for 15 minutes." : "That isn't an owner PIN." },
@@ -52,33 +57,35 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "This owner PIN isn't linked to an owner login." }, { status: 409 });
   }
 
-  // The owner must still own this business.
-  const { data: ownerMembership } = await admin
-    .from("memberships")
-    .select("role")
-    .eq("user_id", staff.user_id)
-    .eq("business_id", membership.business_id)
-    .maybeSingle();
+  // Reset the failure count (only when there is one to reset) while checking the owner.
+  const needsReset = (lock.owner_pin_failures ?? 0) > 0 || lock.owner_pin_locked_until != null;
+  const [, { data: ownerMembership }, { data: owner, error: ownerError }] = await Promise.all([
+    needsReset ? saveLock() : null,
+    // The owner must still own this business.
+    admin
+      .from("memberships")
+      .select("role")
+      .eq("user_id", staff.user_id)
+      .eq("business_id", membership.business_id)
+      .maybeSingle(),
+    admin.auth.admin.getUserById(staff.user_id),
+  ]);
   if (ownerMembership?.role !== "owner") {
     return NextResponse.json({ error: "This PIN's login no longer owns the business." }, { status: 403 });
   }
-
-  const { data: owner, error: ownerError } = await admin.auth.admin.getUserById(staff.user_id);
   if (ownerError || !owner.user?.email) {
     return NextResponse.json({ error: "Could not find the owner's login." }, { status: 500 });
   }
 
-  // Record the PIN use in the owner's PIN log.
-  const { data: device } = await admin
-    .from("memberships").select("label").eq("user_id", user.id).eq("business_id", membership.business_id).maybeSingle();
-  await admin.from("pin_uses").insert({
-    id: randomUUID(), business_id: membership.business_id, staff_id: staff.id, staff_name: staff.name,
-    staff_role: staff.role, action: "owner_view", used_at: new Date().toISOString(), device_user_id: user.id,
-    device_label: device?.label ?? null,
-  });
-
-  // Mint a session for the owner (no email is sent).
-  const { session, error: sessionError } = await mintSession(owner.user.email);
+  // Record the PIN use in the owner's PIN log while minting the owner's session (no email is sent).
+  const [, { session, error: sessionError }] = await Promise.all([
+    admin.from("pin_uses").insert({
+      id: randomUUID(), business_id: membership.business_id, staff_id: staff.id, staff_name: staff.name,
+      staff_role: staff.role, action: "owner_view", used_at: new Date().toISOString(), device_user_id: user.id,
+      device_label: device?.label ?? null,
+    }),
+    mintSession(owner.user.email),
+  ]);
   if (!session) return NextResponse.json({ error: sessionError ?? "Could not start owner session" }, { status: 500 });
   return NextResponse.json(session);
 }

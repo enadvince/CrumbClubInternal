@@ -1,6 +1,6 @@
 "use client";
 import { useState } from "react";
-import { findStaffByPin } from "@/lib/pin";
+import { findStaffByPin, pushRecent } from "@/lib/pin";
 import type { SnapshotStaff } from "@/lib/pos/types";
 import { tapFeedback } from "./feedback";
 
@@ -8,6 +8,21 @@ import { tapFeedback } from "./feedback";
 export function formatCountdown(ms: number): string {
   const total = Math.ceil(ms / 1000);
   return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, "0")}`;
+}
+
+const RECENT_KEY = "crumbclub-pin-recent";
+
+function readRecent(): string[] {
+  try {
+    const v = JSON.parse(localStorage.getItem(RECENT_KEY) ?? "[]");
+    return Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
+function rememberRecent(id: string) {
+  try { localStorage.setItem(RECENT_KEY, JSON.stringify(pushRecent(readRecent(), id))); } catch { /* ignore */ }
 }
 
 const KEYS = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "clear", "0", "back"] as const;
@@ -45,9 +60,10 @@ export function PinPad({
     if (next.length === 4) {
       setChecking(true);
       const candidates = requireOwner ? staff.filter((s) => s.role === "owner") : staff;
-      const match = await findStaffByPin(next, candidates);
+      const match = await findStaffByPin(next, candidates, readRecent());
       setChecking(false);
       if (match) {
+        rememberRecent(match.id);
         setPin("");
         onUnlock(match, next);
       } else {

@@ -124,6 +124,11 @@ export class SyncEngine {
     return this.running;
   }
 
+  /** Resolves once any sync already running in this tab has finished (does not start one). */
+  async whenIdle(): Promise<void> {
+    await this.running?.catch(() => {});
+  }
+
   /** Another tab already syncing? Then skip; it will send everything. */
   private withLock(): Promise<SyncResult> {
     if (!this.locks) return this.run();

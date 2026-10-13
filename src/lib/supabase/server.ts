@@ -52,26 +52,45 @@ export async function mintSession(email: string) {
   };
 }
 
-export type Membership = { business_id: string; role: "owner" | "device"; business_name: string };
+export type Membership = { business_id: string; role: "owner" | "device"; business_name: string; co_owner: boolean };
+
+async function firstMembership(supabase: Awaited<ReturnType<typeof getServerSupabase>>, userId: string): Promise<Membership | null> {
+  const { data } = await supabase
+    .from("memberships")
+    .select("business_id, role, co_owner, businesses(name)")
+    .eq("user_id", userId)
+    .order("created_at")
+    .limit(1)
+    .maybeSingle();
+  return data
+    ? {
+        business_id: data.business_id,
+        role: data.role,
+        co_owner: !!data.co_owner,
+        business_name: (data.businesses as unknown as { name: string } | null)?.name ?? "",
+      }
+    : null;
+}
 
 /** Current user and their (first) membership, or nulls. */
 export async function getSessionContext() {
   const supabase = await getServerSupabase();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { supabase, user: null, membership: null as Membership | null };
-  const { data } = await supabase
-    .from("memberships")
-    .select("business_id, role, businesses(name)")
-    .eq("user_id", user.id)
-    .order("created_at")
-    .limit(1)
-    .maybeSingle();
-  const membership: Membership | null = data
-    ? {
-        business_id: data.business_id,
-        role: data.role,
-        business_name: (data.businesses as unknown as { name: string } | null)?.name ?? "",
-      }
-    : null;
-  return { supabase, user, membership };
+  return { supabase, user, membership: await firstMembership(supabase, user.id) };
+}
+
+/**
+ * Like getSessionContext, but identifies the user from the verified JWT
+ * (getClaims) instead of asking the Auth server, saving a round trip on page
+ * loads. JWT claims can lag behind the Auth server until the token refreshes,
+ * so API routes that read app_metadata or act on the login keep getSessionContext.
+ */
+export async function getPageSessionContext() {
+  const supabase = await getServerSupabase();
+  const { data } = await supabase.auth.getClaims();
+  const sub = data?.claims?.sub;
+  if (!sub) return { supabase, user: null, membership: null as Membership | null };
+  const user = { id: sub, email: typeof data.claims.email === "string" ? data.claims.email : undefined };
+  return { supabase, user, membership: await firstMembership(supabase, sub) };
 }
