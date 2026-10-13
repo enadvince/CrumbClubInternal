@@ -2,6 +2,24 @@
 import { useState } from "react";
 import { getSupabase } from "@/lib/supabase/client";
 import { errorMessage } from "@/lib/errors";
+import { compressPhoto, PRODUCT_PHOTO_MAX_SIDE, PRODUCT_PHOTO_QUALITY } from "@/lib/pos/photo";
+
+/**
+ * Phone photos are often several MB, but the POS shows them as small cards. Shrink to a
+ * small JPEG so the menu loads fast; keep the original if the browser can't read it
+ * (e.g. HEIC on some devices) or it is already smaller.
+ */
+async function shrinkForUpload(file: File): Promise<{ body: Blob; ext: string; contentType: string }> {
+  const ext = (file.name.split(".").pop() ?? "jpg").toLowerCase().replace(/[^a-z0-9]/g, "");
+  const original = { body: file as Blob, ext, contentType: file.type };
+  if (file.type === "image/gif" || file.type === "image/svg+xml") return original;
+  try {
+    const { bytes, mime } = await compressPhoto(file, { maxSide: PRODUCT_PHOTO_MAX_SIDE, quality: PRODUCT_PHOTO_QUALITY });
+    return bytes.byteLength < file.size ? { body: new Blob([bytes], { type: mime }), ext: "jpg", contentType: mime } : original;
+  } catch {
+    return original;
+  }
+}
 
 /** Uploads to the public "photos" bucket under <businessId>/ and returns the public URL. */
 export function PhotoInput({ businessId, value, onChange }: { businessId: string; value: string | null; onChange: (url: string | null) => void }) {
@@ -12,10 +30,10 @@ export function PhotoInput({ businessId, value, onChange }: { businessId: string
     setBusy(true);
     setError(null);
     try {
-      const ext = (file.name.split(".").pop() ?? "jpg").toLowerCase().replace(/[^a-z0-9]/g, "");
+      const { body, ext, contentType } = await shrinkForUpload(file);
       const path = `${businessId}/${crypto.randomUUID()}.${ext}`;
       const storage = getSupabase().storage.from("photos");
-      const { error } = await storage.upload(path, file, { cacheControl: "31536000", upsert: false });
+      const { error } = await storage.upload(path, body, { cacheControl: "31536000", upsert: false, contentType: contentType || undefined });
       if (error) throw error;
       onChange(storage.getPublicUrl(path).data.publicUrl);
     } catch (e) {
