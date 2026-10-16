@@ -353,3 +353,21 @@ test("404 page links back to the POS", async ({ page }) => {
   await expect(page.getByRole("heading", { name: "This page crumbled" })).toBeVisible();
   await expect(page.getByRole("link", { name: "Back to the POS" })).toHaveAttribute("href", "/pos");
 });
+
+test("a cart saved with items that left the menu doesn't break the POS", async ({ page }) => {
+  // e.g. the event changed while the tablet still had an order in progress.
+  await page.goto("/pos");
+  await page.evaluate(() => localStorage.setItem("crumbclub-pos-cart", JSON.stringify({
+    cart: [
+      { id: "gone", kind: "product", eventProductId: "ep-not-on-menu", quantity: 2 },
+      { id: "gone-bundle", kind: "bundle", eventBundleId: "eb-not-on-menu", quantity: 1 },
+      { id: "kept", kind: "product", eventProductId: "ep-ube", quantity: 1 },
+    ],
+    discount: null,
+  })));
+  await unlock(page);
+  await expect(page.getByText("This page couldn’t load")).toBeHidden();
+  await expect(page.getByRole("button", { name: /^Checkout/ })).toBeVisible();
+  // Only the item still on the menu is kept.
+  await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem("crumbclub-pos-cart")!).cart.map((l: { id: string }) => l.id))).toEqual(["kept"]);
+});

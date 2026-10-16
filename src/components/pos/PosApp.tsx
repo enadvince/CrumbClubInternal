@@ -63,7 +63,8 @@ export function PosApp() {
   const activeStaff = useLiveQuery(async () => ({ value: await db.getKv<ActiveStaff | null>(KV.activeStaff) }), []);
   const device = useLiveQuery(async () => ({ value: await db.getKv<DeviceInfo>(KV.device) }), []);
 
-  const [cart, setCart] = useState<CartLine[]>([]);
+  // The cart as last saved; read it through `cart` below, which drops lines no longer on the menu.
+  const [savedCart, setCart] = useState<CartLine[]>([]);
   const [discount, setDiscount] = useState<Discount | null>(null);
   const [tab, setTab] = useState<"bundles" | "pastries">("pastries");
   // Filters within a tab: product subcategory, or bundle type. null = all.
@@ -172,8 +173,8 @@ export function PosApp() {
     } catch { /* ignore */ }
   }, []);
   useEffect(() => {
-    try { localStorage.setItem(CART_KEY, JSON.stringify({ cart, discount })); } catch { /* ignore */ }
-  }, [cart, discount]);
+    try { localStorage.setItem(CART_KEY, JSON.stringify({ cart: savedCart, discount })); } catch { /* ignore */ }
+  }, [savedCart, discount]);
 
   // ---- Derived state
   const snapshot = cached?.value?.snapshot;
@@ -189,9 +190,11 @@ export function PosApp() {
   const shift = openShift?.value ?? null;
   const varianceThreshold = snapshot?.business.variance_threshold_centavos ?? DEFAULT_VARIANCE_THRESHOLD;
 
-  // Drop cart lines that no longer exist after a menu refresh.
+  // Lines whose product or bundle left the menu (a new event, an item removed) are dropped before
+  // anything prices the cart, or a cart saved on the tablet would break the POS on the next load.
+  const cart = useMemo(() => (menu ? pruneCart(savedCart, menu) : savedCart), [savedCart, menu]);
   useEffect(() => {
-    if (menu) setCart((c) => { const pruned = pruneCart(c, menu); return pruned.length === c.length ? c : pruned; });
+    if (menu) setCart((c) => pruneCart(c, menu));
   }, [menu]);
 
   // Lock if the active staff member was removed or deactivated.
