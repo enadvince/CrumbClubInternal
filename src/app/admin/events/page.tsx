@@ -8,6 +8,7 @@ import { EmptyState, Field, Notice, PageHeader, Spinner } from "@/components/ui"
 import { Modal } from "@/components/Modal";
 import { EventStatusBadge } from "@/components/StatusBadge";
 import { errorMessage } from "@/lib/errors";
+import { useAutoRefresh } from "@/lib/useAutoRefresh";
 import { formatDateRange, manilaDate } from "@/lib/time";
 import type { EventRow } from "@/lib/types";
 
@@ -22,6 +23,7 @@ export default function EventsPage() {
     else setEvents(data as EventRow[]);
   }, []);
   useEffect(() => { load(); }, [load]);
+  useAutoRefresh(load, { paused: creating });
 
   return (
     <>

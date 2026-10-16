@@ -8,10 +8,12 @@ import { Modal } from "@/components/Modal";
 import { MoneyInput } from "@/components/MoneyInput";
 import { parsePercent } from "@/lib/money";
 import { errorMessage } from "@/lib/errors";
+import { deleteIfUnchanged, updateIfUnchanged } from "@/lib/editConflict";
+import { useAutoRefresh } from "@/lib/useAutoRefresh";
 import { describeDiscountOption } from "@/components/pos/DiscountModal";
 
 type DiscountOptionRow = {
-  id: string; name: string; type: "percent" | "fixed"; value: number; active: boolean; sort_order: number;
+  id: string; name: string; type: "percent" | "fixed"; value: number; active: boolean; sort_order: number; updated_at: string;
 };
 
 
@@ -22,16 +24,21 @@ export default function DiscountsPage() {
 
   const load = useCallback(async () => {
     const { data, error } = await getSupabase()
-      .from("discount_options").select("id, name, type, value, active, sort_order")
+      .from("discount_options").select("id, name, type, value, active, sort_order, updated_at")
       .order("active", { ascending: false }).order("sort_order").order("name");
     if (error) setError(errorMessage(error));
     else setOptions(data as DiscountOptionRow[]);
   }, []);
   useEffect(() => { load(); }, [load]);
+  useAutoRefresh(load, { paused: editing !== null });
 
   async function toggleActive(o: DiscountOptionRow) {
-    const { error } = await getSupabase().from("discount_options").update({ active: !o.active }).eq("id", o.id);
-    if (error) setError(errorMessage(error));
+    try {
+      setError(null);
+      await updateIfUnchanged(getSupabase(), "discount_options", o, { active: !o.active }, `“${o.name}”`);
+    } catch (err) {
+      setError(errorMessage(err));
+    }
     load();
   }
 
@@ -97,18 +104,28 @@ function DiscountForm({ option, onClose, onSaved }: { option: DiscountOptionRow 
     setSaving(true);
     const row = { name: name.trim(), type, value, sort_order: sortOrder };
     const supabase = getSupabase();
-    const { error } = isNew
-      ? await supabase.from("discount_options").insert({ ...row, business_id: businessId })
-      : await supabase.from("discount_options").update(row).eq("id", (option as DiscountOptionRow).id);
-    setSaving(false);
-    if (error) return setError(errorMessage(error));
+    try {
+      if (isNew) {
+        const { error } = await supabase.from("discount_options").insert({ ...row, business_id: businessId });
+        if (error) throw error;
+      } else {
+        await updateIfUnchanged(supabase, "discount_options", option as DiscountOptionRow, row, "This discount");
+      }
+    } catch (err) {
+      return setError(errorMessage(err));
+    } finally {
+      setSaving(false);
+    }
     onSaved();
   }
 
   async function remove() {
     if (!option || option === "new" || !(await ask({ title: "Delete discount?", body: `Delete “${option.name}”? Past sales keep their discount.`, confirmLabel: "Delete" }))) return;
-    const { error } = await getSupabase().from("discount_options").delete().eq("id", option.id);
-    if (error) return setError(errorMessage(error));
+    try {
+      await deleteIfUnchanged(getSupabase(), "discount_options", option, "This discount");
+    } catch (err) {
+      return setError(errorMessage(err));
+    }
     onSaved();
   }
 

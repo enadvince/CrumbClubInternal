@@ -5,6 +5,7 @@ import { EmptyState, Field, Notice, PageHeader, Spinner } from "@/components/ui"
 import { CopyButton } from "@/components/CopyButton";
 import { BackToTop, ScrollProgress } from "@/components/ScrollAids";
 import { errorMessage } from "@/lib/errors";
+import { useAutoRefresh } from "@/lib/useAutoRefresh";
 import { formatPeso } from "@/lib/money";
 import { formatDateTime } from "@/lib/time";
 import { AUDIT_ACTION_LABEL, AUDIT_SELECT, type AuditRow } from "@/lib/audit";
@@ -35,6 +36,7 @@ export default function AuditPage() {
     const t = setTimeout(() => load(0), 250);
     return () => clearTimeout(t);
   }, [load]);
+  useAutoRefresh(() => load(0), { paused: (rows?.length ?? 0) > PAGE });
 
   return (
     <>

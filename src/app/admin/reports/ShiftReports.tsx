@@ -1,9 +1,10 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { getSupabase } from "@/lib/supabase/client";
 import { Notice } from "@/components/ui";
 import { errorMessage } from "@/lib/errors";
+import { useAutoRefresh } from "@/lib/useAutoRefresh";
 import { formatPeso } from "@/lib/money";
 import { formatDateTime } from "@/lib/time";
 import { SkeletonRows } from "./LowStock";
@@ -18,12 +19,12 @@ type ShiftRow = {
 export function ShiftReports() {
   const [rows, setRows] = useState<ShiftRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
-  useEffect(() => {
-    getSupabase().from("shifts")
+  const load = useCallback(() => getSupabase().from("shifts")
       .select("id, status, opened_at, closed_at, opening_float_centavos, counted_cash_centavos, variance_centavos, close_note, device:pos_devices(device_code), opener:staff!shifts_opened_by_staff_id_fkey(name), events(name)")
       .order("opened_at", { ascending: false }).limit(50)
-      .then(({ data, error }) => (error ? setError(errorMessage(error)) : setRows((data as unknown as ShiftRow[]) ?? [])));
-  }, []);
+      .then(({ data, error }) => (error ? setError(errorMessage(error)) : setRows((data as unknown as ShiftRow[]) ?? []))), []);
+  useEffect(() => { void load(); }, [load]);
+  useAutoRefresh(load);
   if (error) return <Notice tone="danger">{error}</Notice>;
   if (!rows) return <SkeletonRows rows={4} />;
   if (rows.length === 0) return <p className="text-ink-soft">No shifts yet. Tablets open a shift before their first sale.</p>;

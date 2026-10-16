@@ -10,6 +10,8 @@ import { formatPeso } from "@/lib/money";
 import { errorMessage } from "@/lib/errors";
 import { fixedBundleEconomics, mixBundleEconomics, type BundleScenario, type CatalogProduct } from "@/lib/catalog";
 import type { BundleRow, ProductRow } from "@/lib/types";
+import { updateIfUnchanged } from "@/lib/editConflict";
+import { useAutoRefresh } from "@/lib/useAutoRefresh";
 
 export default function BundlesPage() {
   const [bundles, setBundles] = useState<BundleRow[] | null>(null);
@@ -28,6 +30,7 @@ export default function BundlesPage() {
     setProducts(p.data as ProductRow[]);
   }, []);
   useEffect(() => { load(); }, [load]);
+  useAutoRefresh(load, { paused: editing !== null });
 
   const productMap = useMemo(
     () => new Map<string, CatalogProduct>(products.map((p) => [p.id, { id: p.id, name: p.name, price: p.default_price_centavos, cost: p.cost_centavos }])),
@@ -181,8 +184,8 @@ function BundleEditor({ bundle, products, productMap, onClose, onSaved }: {
         id = data.id;
       } else {
         id = (bundle as BundleRow).id;
-        const { error } = await supabase.from("bundles").update(row).eq("id", id);
-        if (error) throw error;
+        // Checked first, so a bundle someone else just edited keeps their items too.
+        await updateIfUnchanged(supabase, "bundles", bundle as BundleRow, row, "This bundle");
         const del = await supabase.from("bundle_items").delete().eq("bundle_id", id);
         if (del.error) throw del.error;
       }
