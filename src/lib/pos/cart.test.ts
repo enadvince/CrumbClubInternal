@@ -214,6 +214,11 @@ describe("cart mutations", () => {
     ];
     expect(pruneCart(cart, menu).map((l) => l.id)).toEqual(["c"]);
   });
+
+  it("returns the same cart when every line is still on the menu", () => {
+    const cart = addProduct([], "ep-ube", () => "l");
+    expect(pruneCart(cart, buildMenu(sampleSnapshot())!)).toBe(cart);
+  });
 });
 
 describe("bundle suggestions", () => {

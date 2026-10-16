@@ -188,8 +188,8 @@ export function changeQuantity(cart: readonly CartLine[], lineId: string, delta:
 }
 
 /** Drops lines whose items are no longer on the menu (e.g. after a menu refresh). */
-export function pruneCart(cart: readonly CartLine[], menu: Menu): CartLine[] {
-  return cart.filter((l) => {
+export function pruneCart(cart: CartLine[], menu: Menu): CartLine[] {
+  const kept = cart.filter((l) => {
     try {
       if (l.kind === "bundle" && !menu.bundles.has(l.eventBundleId)) return false;
       return lineComponents(l, menu).every((c) => menu.products.has(c.eventProductId));
@@ -197,6 +197,8 @@ export function pruneCart(cart: readonly CartLine[], menu: Menu): CartLine[] {
       return false;
     }
   });
+  // Same array when nothing was dropped, so React state and memos stay stable.
+  return kept.length === cart.length ? cart : kept;
 }
 
 // ---------------------------------------------------------------------------
