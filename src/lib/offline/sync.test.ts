@@ -569,6 +569,15 @@ describe("owner-approved voids and refunds offline", () => {
   });
 });
 
+describe("a shift left open on an earlier event", () => {
+  it("is closed off when a shift opens for the current event, like the server does", async () => {
+    const old = await openShiftLocally(db, { eventId: "event-gone", staffId: "staff-1", staffName: "Staff One", openingFloat: 0, openingDenoms: null }, clock);
+    const shift = await openShiftLocally(db, { eventId: "event-1", staffId: "staff-1", staffName: "Staff One", openingFloat: 50000, openingDenoms: null }, clock);
+    expect(await db.shifts.get(old.id)).toMatchObject({ status: "closed", varianceNote: expect.stringMatching(/automatically/) });
+    expect(await db.shifts.where("status").equals("open").toArray()).toEqual([expect.objectContaining({ id: shift.id, eventId: "event-1" })]);
+  });
+});
+
 describe("a full shift offline", () => {
   it("open, sell, cash out, refund, close: provisional until synced, then final and on the server", async () => {
     online = false;
