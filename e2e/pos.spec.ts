@@ -390,3 +390,47 @@ test("a double tap on the last PIN digit signs in once", async ({ page }) => {
   }));
   expect(signIns).toBe(1);
 });
+
+test("rejected items can be exported and dismissed so they stop blocking updates and unpairing", async ({ page, context }) => {
+  await unlock(page);
+  await context.setOffline(true);
+  await page.evaluate(() => window.dispatchEvent(new Event("offline")));
+  await sellOneUbeCash(page);
+  // The server rejected the sale for good (e.g. its event was deleted).
+  await page.evaluate(() => new Promise<void>((resolve, reject) => {
+    const open = indexedDB.open("crumbclub-pos");
+    open.onerror = () => reject(open.error);
+    open.onsuccess = () => {
+      const store = open.result.transaction("outbox", "readwrite").objectStore("outbox");
+      const req = store.getAll();
+      req.onsuccess = () => {
+        for (const o of req.result as { type: string; status: string; lastError?: string }[]) {
+          if (o.type === "sale") store.put({ ...o, status: "failed", lastError: "event not found" });
+        }
+        store.transaction.oncomplete = () => resolve();
+      };
+    };
+  }));
+  // Everything else syncs; only the rejected sale is left.
+  await context.setOffline(false);
+  await page.evaluate(() => window.dispatchEvent(new Event("online")));
+  await page.getByRole("button", { name: /⚙ Owner/ }).click();
+  for (const d of "1234") await page.getByRole("dialog", { name: "Owner PIN" }).getByRole("button", { name: d, exact: true }).click();
+  const menu = page.getByRole("dialog", { name: "Owner menu" });
+  await menu.getByRole("button", { name: /Sync now/ }).click();
+  await menu.getByRole("tab", { name: "Tablet" }).click();
+  await expect(menu.getByText(/Blocked: 1 item/)).toBeVisible({ timeout: 15_000 });
+  await menu.getByRole("tab", { name: "Sync & backup" }).click();
+  await menu.getByRole("button", { name: /Export & dismiss failed/ }).click();
+  const [download] = await Promise.all([
+    page.waitForEvent("download"),
+    page.getByRole("dialog", { name: /Dismiss 1 failed item/ }).getByRole("button", { name: "Download CSV and dismiss" }).click(),
+  ]);
+  expect(download.suggestedFilename()).toMatch(/^crumbclub-failed-items-.*\.csv$/);
+  const csv = await (await download.createReadStream()).toArray().then((chunks) => Buffer.concat(chunks).toString("utf8"));
+  expect(csv).toMatch(/T1-\d{6}-\d{4}/);
+  expect(csv).toContain("event not found");
+  await expect(menu.getByText(/Downloaded and dismissed 1 failed item/)).toBeVisible();
+  await menu.getByRole("tab", { name: "Tablet" }).click();
+  await expect(menu.getByText(/Blocked:/)).toBeHidden();
+});

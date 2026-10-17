@@ -1,6 +1,6 @@
 import "fake-indexeddb/auto";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { KV, PosDatabase, type CachedSnapshot } from "./db";
+import { KV, PosDatabase, type CachedSnapshot, type DeviceInfo } from "./db";
 import {
   recordSaleLocally, undoSale, adjustStockLocally, isDuplicateQrRef, logPinUseLocally, UndoError, voidOrderLocally, refundLocally, ActionError,
   openShiftLocally, drawerMovementLocally, closeShiftLocally, unsyncedForShift,
@@ -98,12 +98,14 @@ class FakeServer implements SyncTransport {
   async claimDeviceCode() { this.guard("claim"); return { device_id: "device-1", device_code: "T1", label: null }; }
   /** Health check fails while the API is down even if the device thinks it's online */
   apiDown = false;
+  /** The login no longer belongs to the business (owner removed the tablet) */
+  removed = false;
   /** Called while a sale is being sent, to inspect the tablet's state mid-request */
   onSend: (() => Promise<void>) | null = null;
   async ping() {
     this.guard("ping");
     if (this.apiDown) throw new SyncError("503 Service Unavailable", false);
-    return { server_time: new Date(clock + 90_000).toISOString() };
+    return { server_time: new Date(clock + 90_000).toISOString(), member: !this.removed };
   }
   serverStock(ep: string) {
     const start = this.base.products!.find((p) => p.event_product_id === ep)!.stock;
@@ -184,6 +186,21 @@ beforeEach(async () => {
 afterEach(async () => {
   db.close();
   await PosDatabase.delete(dbName);
+});
+
+describe("removed tablet", () => {
+  it("stops syncing and keeps its sales queued for the emergency export", async () => {
+    await db.setKv(KV.device, { ...(await db.getKv<DeviceInfo>(KV.device)), userId: "device-login" });
+    await sell(addProduct([], "ep-ube", lineId));
+    server.removed = true;
+    const e = engine();
+    const result = await e.syncOnce();
+    expect(result).toMatchObject({ ok: false, pushed: 0, failedPermanently: 0 });
+    expect(e.state.removed).toBe(true);
+    expect(server.sales.size).toBe(0);
+    expect(await db.getKv(KV.removed)).toEqual({ userId: "device-login", at: clock });
+    expect(summarizeOutbox(await db.outbox.toArray())).toMatchObject({ pending: 1, failed: 0 });
+  });
 });
 
 describe("offline sales", () => {

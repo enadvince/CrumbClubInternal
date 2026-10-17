@@ -68,7 +68,7 @@ export function supabaseTransport(supabase: SupabaseClient, appVersion = "1"): S
       return rpc<ClaimedDevice>("claim_device_code", { p_label: label ?? null }, "Device registration");
     },
     async ping() {
-      return rpc<{ server_time: string }>("pos_ping", {}, "Health check");
+      return rpc<{ server_time: string; member?: boolean }>("pos_ping", {}, "Health check");
     },
     async uploadPaymentPhoto({ transactionId, businessId, bytes, mime }) {
       const path = `${businessId}/${transactionId}.jpg`;
