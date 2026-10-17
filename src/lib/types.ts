@@ -6,12 +6,15 @@ export type ProductRow = {
   track_stock: boolean;
   /** Warn at or below this many left; null uses the event's threshold */
   low_stock_threshold: number | null;
+  /** Bumped on every edit; saves check it so two owners can't silently overwrite each other. */
+  updated_at: string;
 };
 
 export type BundleRow = {
   id: string; business_id: string; name: string; photo_url: string | null;
   type: "fixed" | "mix_match"; price_centavos: number; required_count: number | null; active: boolean;
   bundle_items: { id?: string; product_id: string; quantity: number }[];
+  updated_at: string;
 };
 
 export type EventStatus = "draft" | "live" | "closed";
@@ -19,14 +22,17 @@ export type EventStatus = "draft" | "live" | "closed";
 export type EventRow = {
   id: string; business_id: string; name: string; venue: string | null; starts_on: string; ends_on: string;
   status: EventStatus; low_stock_threshold: number; went_live_at: string | null; closed_at: string | null; created_at: string;
+  updated_at: string;
 };
 
 export type EventProductRow = {
   id: string; event_id: string; product_id: string; price_centavos: number; starting_stock: number;
   current_stock: number; sold_out_at: string | null; is_available: boolean; sort_order: number;
   closing_stock: number | null; closing_unit_cost: number | null;
+  updated_at: string;
 };
 
 export type EventBundleRow = {
   id: string; event_id: string; bundle_id: string; price_centavos: number; is_available: boolean; sort_order: number;
+  updated_at: string;
 };

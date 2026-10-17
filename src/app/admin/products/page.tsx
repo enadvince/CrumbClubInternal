@@ -9,6 +9,8 @@ import { PhotoInput, Thumb } from "@/components/PhotoInput";
 import { formatPeso, marginPercent } from "@/lib/money";
 import { errorMessage } from "@/lib/errors";
 import type { ProductRow } from "@/lib/types";
+import { updateIfUnchanged } from "@/lib/editConflict";
+import { useAutoRefresh } from "@/lib/useAutoRefresh";
 
 export default function ProductsPage() {
   const [products, setProducts] = useState<ProductRow[] | null>(null);
@@ -22,6 +24,7 @@ export default function ProductsPage() {
     else setProducts(data as ProductRow[]);
   }, []);
   useEffect(() => { load(); }, [load]);
+  useAutoRefresh(load, { paused: editing !== null });
 
   const grouped = useMemo(() => {
     const map = new Map<string, ProductRow[]>();
@@ -121,19 +124,26 @@ function ProductEditor({ product, categories, onClose, onSaved }: {
   async function submit(e: FormEvent) {
     e.preventDefault();
     if (price == null || cost == null) return setError("Enter both price and cost per piece.");
-    setBusy(true);
     const lowAt = threshold.trim() === "" ? null : Number(threshold);
     if (lowAt != null && (!Number.isInteger(lowAt) || lowAt < 0)) return setError("The low stock alert must be a whole number, 0 or more.");
+    setBusy(true);
     const row = {
       name: name.trim(), category: category.trim() || "Pastries", default_price_centavos: price, cost_centavos: cost, photo_url: photo, active,
       track_stock: trackStock, low_stock_threshold: lowAt,
     };
     const supabase = getSupabase();
-    const { error } = isNew
-      ? await supabase.from("products").insert({ ...row, business_id: businessId })
-      : await supabase.from("products").update(row).eq("id", (product as ProductRow).id);
-    setBusy(false);
-    if (error) return setError(errorMessage(error));
+    try {
+      if (isNew) {
+        const { error } = await supabase.from("products").insert({ ...row, business_id: businessId });
+        if (error) throw error;
+      } else {
+        await updateIfUnchanged(supabase, "products", product as ProductRow, row, "This product");
+      }
+    } catch (err) {
+      return setError(errorMessage(err));
+    } finally {
+      setBusy(false);
+    }
     onSaved();
   }
 

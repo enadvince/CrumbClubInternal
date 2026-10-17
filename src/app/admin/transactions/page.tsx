@@ -9,6 +9,7 @@ import { EmptyState, Field, Notice, PageHeader, Spinner } from "@/components/ui"
 import { Modal } from "@/components/Modal";
 import { formatPeso } from "@/lib/money";
 import { errorMessage } from "@/lib/errors";
+import { useAutoRefresh } from "@/lib/useAutoRefresh";
 import { formatDateTime } from "@/lib/time";
 import { downloadText } from "@/lib/csv";
 import {
@@ -51,6 +52,9 @@ export default function TransactionsPage() {
     const t = setTimeout(() => load(0), 250);
     return () => clearTimeout(t);
   }, [load]);
+
+  // New sales from the tablets appear on their own; paused once more pages are loaded or an order is open.
+  useAutoRefresh(() => load(0), { paused: (rows?.length ?? 0) > PAGE || selected !== null });
 
   const set = (patch: Partial<TxnFilters>) => setFilters((f) => ({ ...f, ...patch }));
 

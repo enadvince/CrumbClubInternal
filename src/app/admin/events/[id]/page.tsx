@@ -11,6 +11,8 @@ import { Thumb } from "@/components/PhotoInput";
 import { EventStatusBadge } from "@/components/StatusBadge";
 import { formatPeso } from "@/lib/money";
 import { errorMessage } from "@/lib/errors";
+import { deleteIfUnchanged, EditConflictError, updateIfUnchanged } from "@/lib/editConflict";
+import { useAutoRefresh } from "@/lib/useAutoRefresh";
 import { formatDateRange, formatDateTime, formatTime, timeAgo } from "@/lib/time";
 import type { BundleRow, EventBundleRow, EventProductRow, EventRow, ProductRow } from "@/lib/types";
 
@@ -41,6 +43,9 @@ export default function EventPage({ params }: { params: Promise<{ id: string }> 
   const [heartbeat, setHeartbeat] = useState<Heartbeat | null>(null);
   const [openingFloat, setOpeningFloat] = useState<number | null>(null);
   const [dirty, setDirty] = useState(false);
+  // The menu rows as they were when the drafts were made: saves compare against these (not the
+  // rows refreshed since), so an item someone else changed is never overwritten by accident.
+  const [base, setBase] = useState<{ eps: Map<string, EventProductRow>; ebs: Map<string, EventBundleRow> }>({ eps: new Map(), ebs: new Map() });
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -77,6 +82,7 @@ export default function EventPage({ params }: { params: Promise<{ id: string }> 
         : { included: false, price: p.default_price_centavos, starting: 24, available: true, sort: 100 + i }];
     })));
     const ebByBundle = new Map((eb.data as EventBundleRow[]).map((r) => [r.bundle_id, r]));
+    setBase({ eps: epByProduct, ebs: ebByBundle });
     setBundleDrafts(Object.fromEntries((bu.data as BundleRow[]).map((b, i) => {
       const r = ebByBundle.get(b.id);
       return [b.id, r
@@ -88,12 +94,12 @@ export default function EventPage({ params }: { params: Promise<{ id: string }> 
 
   useEffect(() => { load(true); }, [load]);
 
-  // While live, refresh stock numbers so owners see sales as the tablet syncs.
-  useEffect(() => {
-    if (event?.status !== "live") return;
-    const t = setInterval(() => load(false), 20000);
-    return () => clearInterval(t);
-  }, [event?.status, load]);
+  // Keep the page current (stock as the tablet syncs, other owners' edits). Unsaved menu
+  // changes are never replaced: with edits in progress only the live numbers refresh.
+  useAutoRefresh(() => load(!dirty), {
+    paused: busy || editingDetails || adjusting !== null,
+    intervalMs: event?.status === "live" ? 20_000 : 60_000,
+  });
 
   const epByProduct = useMemo(() => new Map(eps.map((r) => [r.product_id, r])), [eps]);
   const productById = useMemo(() => new Map(products.map((p) => [p.id, p])), [products]);
@@ -119,7 +125,7 @@ export default function EventPage({ params }: { params: Promise<{ id: string }> 
     try {
       for (const p of products) {
         const d = productDrafts[p.id];
-        const existing = epByProduct.get(p.id);
+        const existing = base.eps.get(p.id);
         if (d.included) {
           if (d.price == null) { problems.push(`${p.name}: enter a price`); continue; }
           const fields = { price_centavos: d.price, starting_stock: d.starting, is_available: d.available, sort_order: d.sort };
@@ -127,19 +133,17 @@ export default function EventPage({ params }: { params: Promise<{ id: string }> 
             const { error } = await supabase.from("event_products").insert({ ...fields, business_id: businessId, event_id: event.id, product_id: p.id });
             if (error) problems.push(`${p.name}: ${errorMessage(error)}`);
           } else if (existing.price_centavos !== d.price || existing.starting_stock !== d.starting || existing.is_available !== d.available || existing.sort_order !== d.sort) {
-            const { error } = await supabase.from("event_products").update(fields).eq("id", existing.id);
-            if (error) problems.push(`${p.name}: ${errorMessage(error)}`);
+            try { await updateIfUnchanged(supabase, "event_products", existing, fields, p.name); }
+            catch (err) { problems.push(err instanceof EditConflictError ? err.message : `${p.name}: ${errorMessage(err)}`); }
           }
         } else if (existing) {
-          const { error } = await supabase.from("event_products").delete().eq("id", existing.id);
-          if (error) problems.push(`${p.name} already has sales or adjustments; mark it unavailable instead of removing it.`);
+          try { await deleteIfUnchanged(supabase, "event_products", existing, p.name); }
+          catch (err) { problems.push(err instanceof EditConflictError ? err.message : `${p.name} already has sales or adjustments; mark it unavailable instead of removing it.`); }
         }
       }
-      const { data: ebRows } = await supabase.from("event_bundles").select("*").eq("event_id", event.id);
-      const ebByBundle = new Map((ebRows as EventBundleRow[] ?? []).map((r) => [r.bundle_id, r]));
       for (const b of bundles) {
         const d = bundleDrafts[b.id];
-        const existing = ebByBundle.get(b.id);
+        const existing = base.ebs.get(b.id);
         if (d.included) {
           if (d.price == null) { problems.push(`${b.name}: enter a price`); continue; }
           const fields = { price_centavos: d.price, is_available: d.available, sort_order: d.sort };
@@ -147,12 +151,12 @@ export default function EventPage({ params }: { params: Promise<{ id: string }> 
             const { error } = await supabase.from("event_bundles").insert({ ...fields, business_id: businessId, event_id: event.id, bundle_id: b.id });
             if (error) problems.push(`${b.name}: ${errorMessage(error)}`);
           } else if (existing.price_centavos !== d.price || existing.is_available !== d.available || existing.sort_order !== d.sort) {
-            const { error } = await supabase.from("event_bundles").update(fields).eq("id", existing.id);
-            if (error) problems.push(`${b.name}: ${errorMessage(error)}`);
+            try { await updateIfUnchanged(supabase, "event_bundles", existing, fields, b.name); }
+            catch (err) { problems.push(err instanceof EditConflictError ? err.message : `${b.name}: ${errorMessage(err)}`); }
           }
         } else if (existing) {
-          const { error } = await supabase.from("event_bundles").delete().eq("id", existing.id);
-          if (error) problems.push(`${b.name} already has sales; mark it unavailable instead of removing it.`);
+          try { await deleteIfUnchanged(supabase, "event_bundles", existing, b.name); }
+          catch (err) { problems.push(err instanceof EditConflictError ? err.message : `${b.name} already has sales; mark it unavailable instead of removing it.`); }
         }
       }
       if (openingFloat != null) {
@@ -416,9 +420,11 @@ function DetailsModal({ open, event, onClose, onSaved }: { open: boolean; event:
 
   async function submit(e: FormEvent) {
     e.preventDefault();
-    const { error } = await getSupabase().from("events")
-      .update({ name, venue: venue || null, starts_on: startsOn, ends_on: endsOn, low_stock_threshold: threshold }).eq("id", event.id);
-    if (error) return setError(errorMessage(error));
+    try {
+      await updateIfUnchanged(getSupabase(), "events", event, { name, venue: venue || null, starts_on: startsOn, ends_on: endsOn, low_stock_threshold: threshold }, "This event");
+    } catch (err) {
+      return setError(errorMessage(err));
+    }
     onSaved();
   }
 

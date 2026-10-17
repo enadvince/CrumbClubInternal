@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from "react";
 import { getSupabase } from "@/lib/supabase/client";
 import { EmptyState, Field, Notice, PageHeader, Spinner } from "@/components/ui";
 import { errorMessage } from "@/lib/errors";
+import { useAutoRefresh } from "@/lib/useAutoRefresh";
 import { formatDateTime } from "@/lib/time";
 
 const PAGE = 100;
@@ -54,6 +55,7 @@ export default function PinLogPage() {
   }, [staffId, action]);
 
   useEffect(() => { setRows(null); load(0); }, [load]);
+  useAutoRefresh(() => load(0), { paused: (rows?.length ?? 0) > PAGE });
 
   return (
     <>

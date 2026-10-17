@@ -1,9 +1,10 @@
 "use client";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { getSupabase } from "@/lib/supabase/client";
 import { EmptyState, Notice, PageHeader, Spinner } from "@/components/ui";
 import { DashboardBody } from "@/components/dashboard/DashboardBody";
 import { errorMessage } from "@/lib/errors";
+import { useAutoRefresh } from "@/lib/useAutoRefresh";
 import { formatDateTime, manilaDate, timeAgo } from "@/lib/time";
 import { previousScope, resolveScope, type DashboardReport, type EventLite, type Preset, type Scope } from "@/lib/dashboard";
 
@@ -30,6 +31,10 @@ export default function DashboardPage() {
   const [prev, setPrev] = useState<DashboardReport | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  // Bumped by the auto refresh; such reloads happen quietly, without dimming the figures.
+  const [tick, setTick] = useState(0);
+  const quietReload = useRef(false);
+  useAutoRefresh(() => { quietReload.current = true; setTick((t) => t + 1); });
 
   useEffect(() => {
     getSupabase().from("events").select("id, name, starts_on, ends_on, status").order("starts_on", { ascending: false })
@@ -50,13 +55,14 @@ export default function DashboardPage() {
   useEffect(() => {
     if (!events) return;
     let cancelled = false;
-    setLoading(true);
+    if (!quietReload.current) setLoading(true);
+    quietReload.current = false;
     Promise.all([fetchReport(scope), prevScope ? fetchReport(prevScope) : Promise.resolve(null)])
       .then(([r, p]) => { if (!cancelled) { setReport(r); setPrev(p); setError(null); } })
       .catch((e) => !cancelled && setError(errorMessage(e)))
       .finally(() => !cancelled && setLoading(false));
     return () => { cancelled = true; };
-  }, [scope, prevScope, events]);
+  }, [scope, prevScope, events, tick]);
 
   return (
     <>

@@ -349,8 +349,16 @@ export async function openShiftLocally(
   return db.transaction("rw", [db.shifts, db.outbox, db.kv], async () => {
     const device = await db.getKv<DeviceInfo>(KV.device);
     if (!device?.deviceId) throw new ActionError("This tablet isn't registered yet");
-    const open = await db.shifts.where("status").equals("open").first();
-    if (open) throw new ActionError("A shift is already open on this tablet. Close it first.");
+    const open = await db.shifts.where("status").equals("open").toArray();
+    if (open.some((s) => s.eventId === args.eventId)) throw new ActionError("A shift is already open on this tablet. Close it first.");
+    // A shift left open on an earlier event (the event ended or was removed, so it can't be closed
+    // from the POS any more) is closed off, the same way open_shift does it on the server.
+    for (const stale of open) {
+      await db.shifts.update(stale.id, {
+        status: "closed", closedAt: new Date(now).toISOString(),
+        varianceNote: "Closed automatically when the tablet opened a new shift",
+      });
+    }
     const shift: LocalShift = {
       id: uuidv7(now), eventId: args.eventId, deviceId: device.deviceId, status: "open", openedAt: new Date(now).toISOString(),
       openedByStaffId: args.staffId, openedByName: args.staffName, openingFloat: args.openingFloat, openingDenoms: args.openingDenoms,

@@ -1,8 +1,9 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { getSupabase } from "@/lib/supabase/client";
 import { Notice, Spinner } from "@/components/ui";
 import { errorMessage } from "@/lib/errors";
+import { useAutoRefresh } from "@/lib/useAutoRefresh";
 
 type LowStockItem = { event_product_id: string; name: string; category: string; stock: number; threshold: number; out: boolean };
 type LowStockReport = { event: { id: string; name: string; status: string } | null; items: LowStockItem[] };
@@ -11,12 +12,12 @@ type LowStockReport = { event: { id: string; name: string; status: string } | nu
 export function LowStock() {
   const [report, setReport] = useState<LowStockReport | null>(null);
   const [error, setError] = useState<string | null>(null);
-  useEffect(() => {
-    getSupabase().rpc("low_stock_report", {}).then(({ data, error }) => {
-      if (error) setError(errorMessage(error));
-      else setReport(data as LowStockReport);
-    });
-  }, []);
+  const load = useCallback(() => getSupabase().rpc("low_stock_report", {}).then(({ data, error }) => {
+    if (error) setError(errorMessage(error));
+    else { setError(null); setReport(data as LowStockReport); }
+  }), []);
+  useEffect(() => { void load(); }, [load]);
+  useAutoRefresh(load);
 
   if (error) return <Notice tone="danger">{error}</Notice>;
   if (!report) return <SkeletonRows rows={3} />;

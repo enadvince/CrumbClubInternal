@@ -371,3 +371,22 @@ test("a cart saved with items that left the menu doesn't break the POS", async (
   // Only the item still on the menu is kept.
   await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem("crumbclub-pos-cart")!).cart.map((l: { id: string }) => l.id))).toEqual(["kept"]);
 });
+
+test("a double tap on the last PIN digit signs in once", async ({ page }) => {
+  await page.goto("/pos");
+  await expect(page.getByRole("heading", { name: "Enter your PIN" })).toBeVisible({ timeout: 20_000 });
+  for (const d of "111") await page.getByRole("button", { name: d, exact: true }).click();
+  // Two presses of the last digit before React re-renders, like a quick double tap.
+  await page.getByRole("button", { name: "1", exact: true }).evaluate((b: HTMLButtonElement) => { b.click(); b.click(); });
+  await expect(page.getByRole("heading", { name: "Open shift" }).or(page.getByRole("tab", { name: /Individual Items/ }))).toBeVisible({ timeout: 20_000 });
+  const signIns = await page.evaluate(() => new Promise<number>((resolve, reject) => {
+    const open = indexedDB.open("crumbclub-pos");
+    open.onerror = () => reject(open.error);
+    open.onsuccess = () => {
+      const req = open.result.transaction("outbox").objectStore("outbox").getAll();
+      req.onsuccess = () => resolve((req.result as { type: string; payload: { action?: string } }[])
+        .filter((o) => o.type === "pin_use" && o.payload.action === "sign_in").length);
+    };
+  }));
+  expect(signIns).toBe(1);
+});

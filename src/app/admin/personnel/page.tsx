@@ -7,6 +7,7 @@ import { Modal } from "@/components/Modal";
 import { SecretInput } from "@/components/SecretInput";
 import { useConfirm } from "@/components/ConfirmModal";
 import { errorMessage } from "@/lib/errors";
+import { useAutoRefresh } from "@/lib/useAutoRefresh";
 import { formatDateTime } from "@/lib/time";
 
 type Staff = { id: string; name: string; role: "owner" | "staff"; active: boolean; pin_hash: string | null; user_id: string | null };
@@ -64,6 +65,7 @@ export default function PersonnelPage() {
     setStaff((staffRes.data as Staff[]) ?? []);
   }, [businessId]);
   useEffect(() => { load(); }, [load]);
+  useAutoRefresh(load, { paused: adding || addingCoOwner || !!pinFor || !!resetFor || !!removeFor });
   // Old /admin/staff and /admin/owners links redirect here with ?show=.
   useEffect(() => {
     const show = new URLSearchParams(window.location.search).get("show");
