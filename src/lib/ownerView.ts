@@ -1,6 +1,6 @@
 "use client";
 import { getSupabase } from "@/lib/supabase/client";
-import { getDb, KV } from "@/lib/offline/db";
+import { getDb, KV, type DeviceInfo } from "@/lib/offline/db";
 
 /**
  * Owner view on the POS tablet. The tablet normally runs as its restricted
@@ -14,7 +14,15 @@ type ParkedSession = { access_token: string; refresh_token: string; userId: stri
 /** Minutes of no taps before owner view returns to the POS on its own. */
 export const OWNER_VIEW_IDLE_MS = 5 * 60 * 1000;
 
-export async function enterOwnerView(staffId: string, pin: string): Promise<void> {
+let entering: Promise<void> | null = null;
+
+/** One at a time: a second request (a double tap on the PIN pad) joins the one in flight. */
+export function enterOwnerView(staffId: string, pin: string): Promise<void> {
+  entering ??= enterOwnerViewOnce(staffId, pin).finally(() => { entering = null; });
+  return entering;
+}
+
+async function enterOwnerViewOnce(staffId: string, pin: string): Promise<void> {
   const supabase = getSupabase();
   const { data: { session } } = await supabase.auth.getSession();
   if (!session) throw new Error("This tablet isn't signed in. Connect to the internet and try again.");
@@ -27,14 +35,23 @@ export async function enterOwnerView(staffId: string, pin: string): Promise<void
   const body = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(body.error ?? "Couldn't open owner view");
 
-  // Park the tablet's own login first, so it can always be restored.
+  // Park the tablet's own login first, so it can always be restored. Only ever the paired
+  // device login: parking an owner's session in its place would leave the tablet signed in as
+  // that owner after "Back to POS", with its own login lost.
+  const db = getDb();
   const { data: { session: current } } = await supabase.auth.getSession();
   const device = current ?? session;
-  await getDb().setKv<ParkedSession>(KV.deviceSession, {
-    access_token: device.access_token,
-    refresh_token: device.refresh_token,
-    userId: device.user.id,
-  });
+  const paired = await db.getKv<DeviceInfo>(KV.device);
+  const alreadyParked = await db.getKv<ParkedSession | null>(KV.deviceSession);
+  if (paired?.userId && device.user.id !== paired.userId) {
+    if (!alreadyParked) throw new Error("This tablet isn't signed in as the POS. Pair it again from Owner Menu → Tablet.");
+  } else {
+    await db.setKv<ParkedSession>(KV.deviceSession, {
+      access_token: device.access_token,
+      refresh_token: device.refresh_token,
+      userId: device.user.id,
+    });
+  }
   const { error } = await supabase.auth.setSession({ access_token: body.access_token, refresh_token: body.refresh_token });
   if (error) {
     await restoreDeviceSession();

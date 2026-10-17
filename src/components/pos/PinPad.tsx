@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { findStaffByPin, pushRecent } from "@/lib/pin";
 import type { SnapshotStaff } from "@/lib/pos/types";
 import { tapFeedback } from "./feedback";
@@ -48,26 +48,36 @@ export function PinPad({
   const [checking, setChecking] = useState(false);
   const [reveal, setReveal] = useState(false);
   const locked = lockedMs > 0;
+  // Refs, not state: a double tap or a held key can press twice before React re-renders, and
+  // each press would otherwise see the old PIN and run the check (and onUnlock) again.
+  const pinRef = useRef("");
+  const checkingRef = useRef(false);
+  const setPinBoth = (p: string) => { pinRef.current = p; setPin(p); };
 
   async function press(key: (typeof KEYS)[number]) {
     tapFeedback();
-    if (checking || locked) return;
+    if (checkingRef.current || locked) return;
     setError(null);
-    if (key === "clear") return setPin("");
-    if (key === "back") return setPin((p) => p.slice(0, -1));
-    const next = (pin + key).slice(0, 4);
-    setPin(next);
+    if (key === "clear") return setPinBoth("");
+    if (key === "back") return setPinBoth(pinRef.current.slice(0, -1));
+    const next = (pinRef.current + key).slice(0, 4);
+    setPinBoth(next);
     if (next.length === 4) {
+      checkingRef.current = true;
       setChecking(true);
       const candidates = requireOwner ? staff.filter((s) => s.role === "owner") : staff;
-      const match = await findStaffByPin(next, candidates, readRecent());
-      setChecking(false);
+      let match: SnapshotStaff | null = null;
+      try {
+        match = await findStaffByPin(next, candidates, readRecent());
+      } finally {
+        checkingRef.current = false;
+        setChecking(false);
+        setPinBoth("");
+      }
       if (match) {
         rememberRecent(match.id);
-        setPin("");
         onUnlock(match, next);
       } else {
-        setPin("");
         setError(requireOwner ? "That isn't an owner PIN." : "PIN not recognised. Try again.");
         onFail?.();
       }
