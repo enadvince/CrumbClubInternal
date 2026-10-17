@@ -1,5 +1,5 @@
 import type { SalePayload, Snapshot } from "../pos/types";
-import { KV, type CachedSnapshot, type OutboxOp, type PosDatabase } from "./db";
+import { KV, type CachedSnapshot, type DeviceInfo, type OutboxOp, type PosDatabase, type RemovedInfo } from "./db";
 import { isReflected, summarizeOutbox } from "./stock";
 import { applyDeviceState } from "./numbering";
 import { backoffDelay } from "./backoff";
@@ -26,7 +26,7 @@ export interface SyncTransport {
   /** Claims (or returns) this tablet's device code. Needs the internet. */
   claimDeviceCode(label?: string): Promise<ClaimedDevice>;
   /** Lightweight health check: the API answers and the login works. Returns the server clock. */
-  ping(): Promise<{ server_time: string }>;
+  ping(): Promise<{ server_time: string; member?: boolean }>;
   /** Uploads a QR payment photo to Storage and links it to its order. Idempotent. */
   uploadPaymentPhoto(args: PhotoUpload): Promise<void>;
   /** Owner-approved void with a picklist reason (void_order RPC). Idempotent. */
@@ -57,6 +57,8 @@ export type SyncState = {
   consecutiveFailures: number;
   /** Server clock minus this tablet's clock, from the last health check */
   clockOffsetMs: number | null;
+  /** An owner removed this tablet (Tablets page): nothing more can sync. */
+  removed?: boolean;
 };
 
 export type SyncResult = { ok: boolean; pushed: number; failedPermanently: number; skipped?: boolean; error?: string };
@@ -150,8 +152,9 @@ export class SyncEngine {
     if (!this.isOnline()) return false;
     try {
       const before = this.now();
-      const { server_time } = await this.transport.ping();
+      const { server_time, member } = await this.transport.ping();
       const after = this.now();
+      if (member === false) await this.markRemoved();
       const offset = Date.parse(server_time) - Math.round((before + after) / 2);
       if (Number.isFinite(offset)) {
         await this.db.setKv(KV.clockOffsetMs, offset);
@@ -163,6 +166,13 @@ export class SyncEngine {
     }
   }
 
+  /** The login works but no longer belongs to the business: an owner removed this tablet. */
+  private async markRemoved() {
+    const device = await this.db.getKv<DeviceInfo>(KV.device);
+    await this.db.setKv<RemovedInfo>(KV.removed, { userId: device?.userId ?? "", at: this.now() });
+    this.setState({ removed: true });
+  }
+
   private async run(): Promise<SyncResult> {
     this.setState({ lastAttemptAt: this.now() });
     // We hold the lock, so anything still marked "syncing" was interrupted (tab closed, crash).
@@ -171,6 +181,8 @@ export class SyncEngine {
     const online = await this.checkConnection();
     this.setState({ online });
     if (!online) return { ok: false, pushed: 0, failedPermanently: 0, error: "offline" };
+    // Keep everything queued (not failed): it stays in the emergency export.
+    if (this.state.removed) return { ok: false, pushed: 0, failedPermanently: 0, error: "This tablet was removed by an owner" };
 
     let pushed = 0;
     let failedPermanently = 0;

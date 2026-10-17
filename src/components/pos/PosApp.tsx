@@ -4,7 +4,7 @@ import { useLiveQuery } from "dexie-react-hooks";
 import Link from "next/link";
 import { getSupabase } from "@/lib/supabase/client";
 import { isSupabaseConfigured } from "@/lib/supabase/env";
-import { getDb, KV, type ActiveStaff, type CachedSnapshot, type DeviceInfo } from "@/lib/offline/db";
+import { getDb, KV, type ActiveStaff, type CachedSnapshot, type DeviceInfo, type RemovedInfo } from "@/lib/offline/db";
 import { SyncEngine, type SyncState, type SyncTransport } from "@/lib/offline/sync";
 import { applyDeviceState, shortOrderNumber } from "@/lib/offline/numbering";
 import { uuidv7 } from "@/lib/uuid";
@@ -40,6 +40,7 @@ import { CheckoutModal } from "./CheckoutModal";
 import { DiscountModal } from "./DiscountModal";
 import { ShiftPanel } from "./ShiftPanel";
 import { OwnerMenu } from "./OwnerMenu";
+import { RemovedTablet } from "./RemovedTablet";
 import { ConnectionToast, SyncPanel, SyncPill, UnsyncedBanner } from "./SyncStatus";
 import { useWakeLock } from "./useWakeLock";
 import { CART_KEY, requestBackgroundSync, SYNC_NOW_EVENT } from "@/lib/pwa";
@@ -62,6 +63,7 @@ export function PosApp() {
   const ops = useLiveQuery(() => db.outbox.toArray(), [], []);
   const activeStaff = useLiveQuery(async () => ({ value: await db.getKv<ActiveStaff | null>(KV.activeStaff) }), []);
   const device = useLiveQuery(async () => ({ value: await db.getKv<DeviceInfo>(KV.device) }), []);
+  const removed = useLiveQuery(() => db.getKv<RemovedInfo>(KV.removed), []);
 
   // The cart as last saved; read it through `cart` below, which drops lines no longer on the menu.
   const [savedCart, setCart] = useState<CartLine[]>([]);
@@ -311,6 +313,11 @@ export function PosApp() {
   async function unpair() {
     const pending = await db.outbox.where("status").notEqual("synced").count();
     if (pending > 0) return setNotice("Can't unpair: some sales haven't synced yet.");
+    await resetTablet();
+  }
+
+  /** Signs out and deletes everything on the tablet, then goes to pairing. */
+  async function resetTablet() {
     engineRef.current?.stop();
     if (!isPosDemo()) await getSupabase().auth.signOut({ scope: "local" }).catch(() => {});
     await db.delete().catch(() => {});
@@ -371,6 +378,10 @@ export function PosApp() {
         <Link href="/pos/pair" className="btn-primary">Set up this tablet</Link>
       </Centered>
     );
+  }
+  // Removed by an owner (Tablets page). A re-paired tablet has a new login, so an old flag doesn't apply.
+  if (removed && removed.userId === device?.value?.userId) {
+    return <RemovedTablet db={db} unsynced={ops.filter((o) => o.status !== "synced").length} onReset={resetTablet} />;
   }
   if (!snapshot) {
     return (

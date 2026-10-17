@@ -90,6 +90,8 @@ export type ActiveStaff = { id: string; name: string; role: "owner" | "staff"; u
 
 /** This tablet's registration. deviceId/deviceCode come from pos_devices once it has been claimed. */
 export type DeviceInfo = { userId: string; deviceId?: string; deviceCode?: string; label?: string };
+/** Which device login was removed, and when (local ms). A re-paired tablet has a new login. */
+export type RemovedInfo = { userId: string; at: number };
 
 export type Denominations = Record<string, number>;
 
@@ -213,6 +215,10 @@ export const KV = {
   pinLock: "pinLock",
   /** Server time minus device time (ms) at the last health check */
   clockOffsetMs: "clockOffsetMs",
+  /** OutboxOp[]: rejected entries an owner exported and dismissed (kept for the emergency export) */
+  dismissedOps: "dismissedOps",
+  /** RemovedInfo: an owner removed this tablet's login from the business */
+  removed: "removed",
 } as const;
 
 /** Op statuses that still need the server. */

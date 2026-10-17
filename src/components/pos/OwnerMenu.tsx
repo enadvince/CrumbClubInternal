@@ -6,7 +6,7 @@ import { ConfirmModal } from "@/components/ConfirmModal";
 import { getDb, KV, type DeviceInfo } from "@/lib/offline/db";
 import { CopyButton } from "@/components/CopyButton";
 import { adjustStockLocally, auditLocally, setAvailabilityLocally, type AdjustmentReason } from "@/lib/offline/actions";
-import { backupCsv, backupJson } from "@/lib/offline/backup";
+import { backupCsv, backupJson, dismissFailedOps, failedOpsCsv } from "@/lib/offline/backup";
 import type { SyncEngine, SyncState } from "@/lib/offline/sync";
 import type { UnsyncedSummary } from "@/lib/offline/stock";
 import { downloadText } from "@/lib/csv";
@@ -35,6 +35,7 @@ export function OwnerMenu({
   const [tab, setTab] = useState<Tab>("sync");
   const [message, setMessage] = useState<string | null>(null);
   const [confirmUnpair, setConfirmUnpair] = useState(false);
+  const [confirmDismiss, setConfirmDismiss] = useState(false);
   const unsynced = useLiveQuery(() => getDb().outbox.where("status").notEqual("synced").toArray(), [], []);
   const hasUnsynced = summary.pending + summary.failed > 0;
 
@@ -51,6 +52,23 @@ export function OwnerMenu({
     setMessage(null);
     const r = await engine?.syncOnce();
     setMessage(r?.ok ? `Synced${r.pushed ? ` ${r.pushed} item(s)` : ""}.` : `Couldn't sync: ${r?.error ?? "offline"}`);
+  }
+
+  /** Rejected entries block app updates and unpairing forever: save them to a file, then take them off the queue. */
+  async function exportAndDismiss() {
+    setConfirmDismiss(false);
+    const db = getDb();
+    const failed = await db.outbox.where("status").equals("failed").toArray();
+    if (failed.length === 0) return setMessage("Nothing to dismiss.");
+    const stamp = new Date().toISOString().slice(0, 16).replace(/[:T]/g, "-");
+    downloadText(`crumbclub-failed-items-${stamp}.csv`, failedOpsCsv(failed));
+    const count = await dismissFailedOps(db, failed);
+    const orders = failed.map((o) => o.display?.orderNumber).filter(Boolean);
+    await auditLocally(db, {
+      action: "emergency_export", manager_staff_id: ownerStaffId,
+      note: `failed items CSV; dismissed ${count} item(s) the server rejected${orders.length ? `: ${orders.join(", ")}` : ""}`,
+    });
+    setMessage(`Downloaded and dismissed ${count} failed item(s). Keep the file: these were never saved on the server. Stock on this tablet no longer counts them, so adjust stock if needed.`);
   }
 
   async function retryFailed() {
@@ -85,7 +103,20 @@ export function OwnerMenu({
           <div className="flex flex-wrap gap-2">
             <button className="btn-primary" onClick={syncNow} disabled={state.syncing}>{state.syncing ? "Syncing…" : "↻ Sync now"}</button>
             {summary.failed > 0 && <button className="btn-secondary" onClick={retryFailed}>Retry failed</button>}
+            {summary.failed > 0 && <button className="btn-secondary" onClick={() => setConfirmDismiss(true)}>⬇ Export &amp; dismiss failed</button>}
           </div>
+          <ConfirmModal
+            open={confirmDismiss}
+            title={`Dismiss ${summary.failed} failed item(s)?`}
+            confirmLabel="Download CSV and dismiss"
+            onClose={() => setConfirmDismiss(false)}
+            onConfirm={exportAndDismiss}
+          >
+            <p>
+              The server rejected these, so retrying won&apos;t help. They stop app updates and unpairing until they&apos;re dismissed.
+              A CSV of them downloads first. They will <strong>not</strong> appear on the owner pages: re-enter any that matter by hand.
+            </p>
+          </ConfirmModal>
           <div className="rounded-xl border-2 border-danger/50 bg-danger-light/40 p-3">
             <p className="font-bold text-danger">Emergency export (last resort)</p>
             <p className="mb-2 text-sm text-ink-soft">
