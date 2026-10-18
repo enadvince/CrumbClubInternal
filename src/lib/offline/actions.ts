@@ -8,7 +8,7 @@ import { VOID_REASONS } from "../pos/reasons";
 import type { PinUseAction } from "./sync";
 import { takeOrderNumber } from "./numbering";
 
-export const UNDO_WINDOW_MS = 5_000;
+export const UNDO_WINDOW_MS = 15_000;
 
 /**
  * Records a sale on the device. One IndexedDB transaction takes the next order
@@ -82,13 +82,13 @@ function localSaleFrom(sale: SalePayload, meta: { staffName: string; summary: st
 
 export class UndoError extends Error {}
 
-/** "Undo last sale": voids with reason "staff undo" within 5 s and returns the stock. */
+/** "Undo last sale": voids with reason "staff undo" within 15 s and returns the stock. */
 export async function undoSale(db: PosDatabase, saleId: string, staffId: string, now = Date.now()): Promise<void> {
   await db.transaction("rw", db.sales, db.outbox, async () => {
     const sale = await db.sales.get(saleId);
     if (!sale) throw new UndoError("Sale not found");
     if (sale.status === "voided") throw new UndoError("Sale was already undone");
-    if (now - new Date(sale.createdAt).getTime() > UNDO_WINDOW_MS) throw new UndoError("Undo is only available for 5 seconds");
+    if (now - new Date(sale.createdAt).getTime() > UNDO_WINDOW_MS) throw new UndoError("Undo is only available for 15 seconds");
     const voidedAt = new Date(now).toISOString();
     await db.sales.update(saleId, { status: "voided", voidReason: "staff undo", voidedAt });
     await db.outbox.add({

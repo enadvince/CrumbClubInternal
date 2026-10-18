@@ -288,7 +288,7 @@ export function PosApp() {
     setCheckingOut(false);
     setLastSale(done);
     setConfirmation(done);
-    setTimeout(() => setConfirmation((c) => (c?.id === done.id ? null : c)), 15_000);
+    setTimeout(() => setConfirmation((c) => (c?.id === done.id ? null : c)), 2200);
     engineRef.current?.requestSync();
     void requestBackgroundSync();
   }
