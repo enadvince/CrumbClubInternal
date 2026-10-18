@@ -239,7 +239,6 @@ export default function EventPage({ params }: { params: Promise<{ id: string }> 
                 <th className="p-3 font-semibold">On menu</th>
                 <th className="p-3 font-semibold">Price</th>
                 <th className="p-3 font-semibold">Starting stock</th>
-                <th className="p-3 font-semibold">Order</th>
                 <th className="p-3 font-semibold">Stock now</th>
                 <th className="p-3 font-semibold">Available</th>
                 <th className="p-3 font-semibold"><span className="sr-only">Actions</span></th>
@@ -263,10 +262,6 @@ export default function EventPage({ params }: { params: Promise<{ id: string }> 
                     <td className="w-28 p-2">
                       <input aria-label={`Starting stock for ${p.name}`} type="number" inputMode="numeric" min={0} disabled={locked} className="input text-right" value={d.starting}
                         onChange={(e) => updateProduct(p.id, { starting: Math.max(0, Math.floor(Number(e.target.value) || 0)) })} />
-                    </td>
-                    <td className="w-24 p-2">
-                      <input aria-label={`Sort order for ${p.name}`} type="number" inputMode="numeric" disabled={locked} className="input text-right" value={d.sort}
-                        onChange={(e) => updateProduct(p.id, { sort: Math.floor(Number(e.target.value) || 0) })} />
                     </td>
                     <td className="p-3 tabular-nums">
                       {ep ? (

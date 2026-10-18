@@ -314,7 +314,7 @@ describe("recovery after app restart", () => {
 });
 
 describe("undo and voids", () => {
-  it("undo within 60s returns stock locally and on the server", async () => {
+  it("undo within 15s returns stock locally and on the server", async () => {
     const sale = await sell(addBundle([], "eb-ubebox", lineId));
     expect(await stockOf("ep-ube")).toBe(18);
     await undoSale(db, sale.id, "staff-1", clock + 10_000);
@@ -325,9 +325,9 @@ describe("undo and voids", () => {
     expect(await stockOf("ep-ube")).toBe(24);
   });
 
-  it("undo after 60s is refused", async () => {
+  it("undo after 15s is refused", async () => {
     const sale = await sell(addProduct([], "ep-ube", lineId));
-    await expect(undoSale(db, sale.id, "staff-1", clock + 61_000)).rejects.toBeInstanceOf(UndoError);
+    await expect(undoSale(db, sale.id, "staff-1", clock + 16_000)).rejects.toBeInstanceOf(UndoError);
   });
 
   it("undo while offline before the sale synced sends sale then void", async () => {

@@ -156,7 +156,7 @@ Details, conflict handling and how to add a device: [docs/offline-architecture.m
    - **Cash:** tap **Exact**, a quick amount, or type pesos. Give the **change due** shown, then **Complete sale**.
    - **QR Ph (GCash / InstaPay):** wait for the GCash merchant notification and tap **📷 Photo of payment**. The tablet reads the **reference number** from the photo and fills it in (works offline); check it matches, or type it if it couldn't read it. Tick the confirmation box, then **Complete sale**. QR payments are saved as **awaiting verification** until an owner checks them.
 5. The screen shows **✓ Sale saved** and the order number, e.g. **#042** (T1-261008-0042). Call out the three digits.
-6. Mistake right away? Tap **Undo** within **60 seconds**. An owner enters their PIN to approve.
+6. Mistake right away? Tap **Undo** within **15 seconds**. An owner enters their PIN to approve.
 
 **Voids and refunds** (owner PIN needed)
 - Tap **🧾 Order History**, search the number, then **Void order**, **Void item** or **Refund**. Pick a reason (wrong item, customer changed mind, duplicate, other with a note). For refunds, choose the items, how many, and cash or QR. A voided order keeps its number and shows crossed out.
