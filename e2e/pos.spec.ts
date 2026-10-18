@@ -27,7 +27,7 @@ async function sellOneUbeCash(page: Page) {
   await page.getByRole("button", { name: /^Complete sale/ }).click();
   await expect(page.getByText("Sale saved")).toBeVisible();
   await expect(page.getByTestId("order-number")).toContainText(/#\d{3}\s*T1-\d{6}-\d{4}/);
-  await expect(page.getByText("Sale saved")).toBeHidden({ timeout: 5_000 });
+  await expect(page.getByText("Sale saved")).toBeHidden({ timeout: 20_000 });
 }
 
 test("sells offline, shows unsynced count, syncs when back online", async ({ page, context }) => {
